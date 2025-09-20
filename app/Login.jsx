@@ -82,12 +82,52 @@ export default function Login() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: "center", padding: 16, backgroundColor: "#fff" },
-  title: { fontSize: 32, marginBottom: 24, textAlign: "center", fontFamily: "LEMONMILK-Bold", color: "#00b2e1" },
-  input: { width: "100%", padding: 12, borderWidth: 1, borderColor: "#ccc", borderRadius: 6, marginBottom: 4 },
-  inputError: { borderColor: "#f21b3f" },
-  errorText: { color: "#f21b3f", fontSize: 12, marginBottom: 8 },
-  button: { backgroundColor: "#00b2e1", padding: 12, borderRadius: 8, width: "50%", alignItems: "center", alignSelf: "center", marginTop: 12 },
-  buttonText: { color: "#fff", fontWeight: "bold", fontSize: 18 },
-  link: { marginTop: 12, color: "#00b2e1", textAlign: "center" },
+  container: { 
+    flex: 1, 
+    justifyContent: "center", 
+    padding: 16, 
+    backgroundColor: "#fff" 
+  },
+  title: { 
+    fontSize: 32, 
+    marginBottom: 24, 
+    textAlign: "center", 
+    fontFamily: "LEMONMILK-Bold", 
+    color: "#00b2e1" 
+  },
+  input: { 
+    width: "100%", 
+    padding: 12, 
+    borderWidth: 1, 
+    borderColor: "#ccc", 
+    borderRadius: 6, 
+    marginBottom: 4 
+  },
+  inputError: { 
+    borderColor: "#f21b3f" 
+  },
+  errorText: { 
+    color: "#f21b3f", 
+    fontSize: 12, 
+    marginBottom: 8 
+  },
+  button: { 
+    backgroundColor: "#00b2e1", 
+    padding: 12, 
+    borderRadius: 8, 
+    width: "50%", 
+    alignItems: "center", 
+    alignSelf: "center", 
+    marginTop: 12 
+  },
+  buttonText: { 
+    color: "#fff", 
+    fontWeight: "bold", 
+    fontSize: 18 
+  },
+  link: { 
+    marginTop: 12, 
+    color: "#00b2e1", 
+    textAlign: "center" 
+  },
 });

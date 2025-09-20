@@ -1,14 +1,6 @@
 import { doc, getDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
-import {
-  Dimensions,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { Dimensions, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import Dashboard from "../components/DriverDashboard";
 import { auth, db } from "../firebaseConfig";
 
@@ -93,8 +85,13 @@ export default function Home() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#fff" },
-  scrollContent: { paddingBottom: 20 },
+  safe: { 
+    flex: 1, 
+    backgroundColor: "#fff" 
+  },
+  scrollContent: { 
+    paddingBottom: 20 
+  },
   topSection: {
     backgroundColor: "#00b2e1",
     padding: 20,
@@ -102,8 +99,16 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 20,
     borderBottomRightRadius: 20,
   },
-  greeting: { fontSize: 24, fontWeight: "700", color: "#fff" },
-  subheading: { fontSize: 16, marginTop: 6, color: "#f0f0f0" },
+  greeting: { 
+    fontSize: 24, 
+    fontWeight: "700", 
+    color: "#fff" 
+  },
+  subheading: { 
+    fontSize: 16, 
+    marginTop: 6, 
+    color: "#f0f0f0" 
+  },
   startShiftButton: {
     height: 48,
     alignItems: "center",
@@ -116,7 +121,11 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  startShiftText: { fontSize: 16, fontWeight: "600", color: "#fff" },
+  startShiftText: { 
+    fontSize: 16, 
+    fontWeight: "600", 
+    color: "#fff" 
+  },
   speedometerCard: {
     backgroundColor: "#fff",
     borderRadius: 16,
@@ -134,9 +143,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  speedValue: { fontSize: 36, fontWeight: "bold", color: "#29bf12" },
-  speedUnit: { fontSize: 14, color: "#555" },
-  speedLimit: { fontSize: 16, marginTop: 10, color: "#777" },
+  speedValue: { 
+    fontSize: 36, 
+    fontWeight: "bold", 
+    color: "#29bf12" 
+  },
+  speedUnit: { 
+    fontSize: 14, 
+    color: "#555" 
+  },
+  speedLimit: { 
+    fontSize: 16, 
+    marginTop: 10, 
+    color: "#777" 
+  },
   endShiftButton: {
     marginTop: 16,
     height: 44,
@@ -149,5 +169,9 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  endShiftText: { fontSize: 16, fontWeight: "600", color: "#fff" },
+  endShiftText: { 
+    fontSize: 16, 
+    fontWeight: "600",
+    color: "#fff" 
+  },
 });

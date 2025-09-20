@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import ParcelDetailsModal from "../components/ParcelDetailsModal.jsx";
+import ParcelDetailsModal from "../components/ParcelDetailsModal";
 
 const initialParcels = [
   {
@@ -60,7 +60,7 @@ export default function Parcels() {
     );
   };
 
-  // ✅ Filtering logic
+  // Filtering logic
   const filteredParcels = parcels.filter((p) => {
     if (selectedTab === "toDeliver") {
       return p.Status === "To Deliver";
@@ -185,14 +185,22 @@ export default function Parcels() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff", padding: 10 },
+  container: { 
+    flex: 1, 
+    backgroundColor: "#fff", 
+    padding: 10 
+  },
   tabContainer: {
     flexDirection: "row",
     borderRadius: 8,
     overflow: "hidden",
     marginBottom: 10,
   },
-  tab: { flex: 1, alignItems: "center", paddingVertical: 12 },
+  tab: { 
+    flex: 1, 
+    alignItems: "center", 
+    paddingVertical: 12 
+  },
   filterContainer: {
     flexDirection: "row",
     justifyContent: "space-around",
@@ -221,12 +229,22 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
-  parcelName: { fontSize: 16, fontWeight: "bold" },
-  parcelText: { fontSize: 14, marginTop: 2 },
+  parcelName: { 
+    fontSize: 16, 
+    fontWeight: "bold" 
+  },
+  parcelText: { 
+    fontSize: 14, 
+    marginTop: 2 
+  },
   statusBadge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
   },
-  statusText: { color: "#fff", fontWeight: "bold", fontSize: 12 },
+  statusText: { 
+    color: "#fff", 
+    fontWeight: "bold", 
+    fontSize: 12 
+  },
 });

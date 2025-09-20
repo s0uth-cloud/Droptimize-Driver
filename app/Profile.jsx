@@ -1,13 +1,6 @@
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import ProfilePhotoSelector from "../components/ProfilePhotoSelector";
 import { auth, db } from "../firebaseConfig";
 
@@ -23,7 +16,7 @@ export default function Profile() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
 
-  // 🔹 Load user data from Firestore
+  // Load user data from Firestore
   useEffect(() => {
     const loadUserData = async () => {
       const user = auth.currentUser;
@@ -53,7 +46,7 @@ export default function Profile() {
     loadUserData();
   }, []);
 
-  // 🔹 Save edits back to Firestore
+  // Save edits back to Firestore
   const handleSave = async () => {
     const user = auth.currentUser;
     if (!user) return;
@@ -78,7 +71,7 @@ export default function Profile() {
         <ActivityIndicator size="large" color="#00b2e1" />
       ) : (
         <>
-          {/* 🔹 Profile photo with Firestore sync */}
+          {/* Profile photo with Firestore sync */}
           <ProfilePhotoSelector
             style={styles.profileImage}
             initialUrl={userData.photoURL}
@@ -87,14 +80,14 @@ export default function Profile() {
             }
           />
 
-          {/* 🔹 Non-editable User ID */}
+          {/* Non-editable User ID */}
           <TextInput
             style={styles.input}
             value={userData.id}
             editable={false}
           />
 
-          {/* 🔹 Editable fields */}
+          {/* Editable fields */}
           <TextInput
             style={styles.input}
             value={userData.fullName}
@@ -126,7 +119,7 @@ export default function Profile() {
             placeholder="Address"
           />
 
-          {/* 🔹 Toggle between edit & save */}
+          {/* Toggle between edit & save */}
           <TouchableOpacity
             style={styles.button}
             onPress={editing ? handleSave : () => setEditing(true)}

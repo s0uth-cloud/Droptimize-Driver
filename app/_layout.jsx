@@ -5,17 +5,7 @@ import * as SplashScreen from "expo-splash-screen";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Animated,
-  Dimensions,
-  Image,
-  SafeAreaView,
-  StyleSheet,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-  View,
-} from "react-native";
+import { ActivityIndicator, Animated, Dimensions, Image, SafeAreaView, StyleSheet, TouchableOpacity, TouchableWithoutFeedback, View } from "react-native";
 
 import Navigation from "../components/Navigation";
 import { auth, db } from "../firebaseConfig";

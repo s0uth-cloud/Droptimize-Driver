@@ -1,4 +1,4 @@
-import { Text, View, StyleSheet } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 
 export default function DriverStatus() {
   const driverStatus = "available"; // You can change this to "busy" or other status
@@ -6,7 +6,7 @@ export default function DriverStatus() {
   const statusColor = {
     available: "#29bf12",  // Green
     busy: "#ff9914",       // Orange
-    offline: "#c4cad0",    // Gray (optional)
+    offline: "#c4cad0",    // Gray
   };
 
   return (

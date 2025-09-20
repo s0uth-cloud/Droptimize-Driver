@@ -2,15 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { useState } from "react";
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { ActivityIndicator, KeyboardAvoidingView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import DropDownPicker from "react-native-dropdown-picker";
 import { auth, db } from "../firebaseConfig";
 
@@ -84,14 +76,14 @@ export default function AccountVehicleSetup() {
           plateNumber: formData.plateNumber,
           vehicleType,
           model: formData.model,
-          accountSetupComplete: true, // ✅ mark account setup complete
+          accountSetupComplete: true,
           vehicleSetupComplete: true,
           updatedAt: serverTimestamp(),
         },
         { merge: true }
       );
 
-      router.replace("/Home"); // redirect to Home after setup
+      router.replace("/Home");
     } catch (err) {
       console.error("Error saving setup:", err);
       setErrors({ general: "Failed to save data. Try again." });
@@ -160,14 +152,67 @@ export default function AccountVehicleSetup() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: "center", padding: 20, backgroundColor: "#fff" },
-  title: { fontSize: 28, textAlign: "center", fontFamily: "LEMONMILK-Bold", color: "#00b2e1", marginBottom: 24 },
-  input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 6, padding: 12, marginBottom: 6, width: "100%" },
-  inputWrapper: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: "#ccc", borderRadius: 6, paddingHorizontal: 12, marginBottom: 6, width: "100%" },
-  joinCodeInput: { flex: 1, paddingVertical: 12, paddingRight: 10 },
-  dropdown: { borderColor: "#ccc", marginBottom: 6, width: "100%" },
-  inputError: { borderColor: "#f21b3f" },
-  errorText: { fontSize: 12, color: "#f21b3f", marginBottom: 10 },
-  button: { backgroundColor: "#00b2e1", padding: 14, borderRadius: 6, alignItems: "center", marginTop: 12, width: "50%", alignSelf: "center" },
-  buttonText: { color: "#fff", fontWeight: "bold", fontSize: 18 },
+  container: { 
+    flex: 1,
+    justifyContent: "center",
+    padding: 20,
+    backgroundColor: "#fff" 
+  },
+  title: { 
+    fontSize: 28, 
+    textAlign: "center", 
+    fontFamily: "LEMONMILK-Bold", 
+    color: "#00b2e1", 
+    marginBottom: 24 
+  },
+  input: { 
+    borderWidth: 1, 
+    borderColor: "#ccc", 
+    borderRadius: 6, 
+    padding: 12, 
+    marginBottom: 6, 
+    width: "100%" 
+  },
+  inputWrapper: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    borderWidth: 1, 
+    borderColor: "#ccc", 
+    borderRadius: 6, 
+    paddingHorizontal: 12, 
+    marginBottom: 6, 
+    width: "100%" 
+  },
+  joinCodeInput: { 
+    flex: 1, 
+    paddingVertical: 12, 
+    paddingRight: 10 
+  },
+  dropdown: { 
+    borderColor: "#ccc", 
+    marginBottom: 6, 
+    width: "100%" 
+  },
+  inputError: { 
+    borderColor: "#f21b3f" 
+  },
+  errorText: { 
+    fontSize: 12, 
+    color: "#f21b3f", 
+    marginBottom: 10 
+  },
+  button: { 
+    backgroundColor: "#00b2e1", 
+    padding: 14, 
+    borderRadius: 6, 
+    alignItems: "center", 
+    marginTop: 12, 
+    width: "50%", 
+    alignSelf: "center" 
+  },
+  buttonText: { 
+    color: "#fff", 
+    fontWeight: "bold", 
+    fontSize: 18 
+  },
 });

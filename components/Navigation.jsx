@@ -1,18 +1,9 @@
-// components/Navigation.jsx
-import {
-  Alert,
-  BackHandler,
-  Platform,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { Alert, BackHandler, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { logoutUser } from "../firebaseConfig";
 
 export default function Navigation({ onNavigate }) {
   const handleNavigate = (path) => {
-    if (onNavigate) onNavigate(path); // ✅ pass the path to parent
+    if (onNavigate) onNavigate(path); // pass the path to parent
   };
 
   const handleSignOut = () => {
@@ -26,7 +17,7 @@ export default function Navigation({ onNavigate }) {
           style: "destructive",
           onPress: () => {
             logoutUser();
-            if (onNavigate) onNavigate("/Login"); // ✅ handled by _layout
+            if (onNavigate) onNavigate("/Login");
           },
         },
       ],

@@ -1,15 +1,6 @@
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  KeyboardAvoidingView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { ActivityIndicator, Alert, KeyboardAvoidingView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { registerUser } from "../firebaseConfig";
 
 export default function SignUp() {
@@ -88,12 +79,52 @@ export default function SignUp() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: "center", padding: 16, backgroundColor: "#fff" },
-  title: { fontSize: 32, marginBottom: 24, textAlign: "center", fontFamily: "LEMONMILK-Bold", color: "#00b2e1" },
-  input: { width: "100%", padding: 12, borderWidth: 1, borderColor: "#ccc", borderRadius: 6, marginBottom: 4 },
-  errorInput: { borderColor: "#f21b3f" },
-  errorText: { color: "#f21b3f", fontSize: 12, marginBottom: 8 },
-  button: { backgroundColor: "#00b2e1", padding: 14, borderRadius: 6, alignItems: "center", marginTop: 16, width: "50%", alignSelf: "center" },
-  buttonText: { color: "#fff", fontWeight: "bold", fontSize: 18 },
-  link: { marginTop: 12, color: "#00b2e1", textAlign: "center" },
+  container: { 
+    flex: 1, 
+    justifyContent: "center", 
+    padding: 16, 
+    backgroundColor: "#fff" 
+  },
+  title: { 
+    fontSize: 32, 
+    marginBottom: 24, 
+    textAlign: "center", 
+    fontFamily: "LEMONMILK-Bold", 
+    color: "#00b2e1" 
+  },
+  input: { 
+    width: "100%", 
+    padding: 12, 
+    borderWidth: 1, 
+    borderColor: "#ccc", 
+    borderRadius: 6, 
+    marginBottom: 4 
+  },
+  errorInput: { 
+    borderColor: "#f21b3f" 
+  },
+  errorText: { 
+    color: "#f21b3f", 
+    fontSize: 12, 
+    marginBottom: 8 
+  },
+  button: { 
+    backgroundColor: "#00b2e1", 
+    padding: 14, 
+    borderRadius: 6, 
+    alignItems: "center", 
+    marginTop: 16, 
+    width: "50%", 
+    alignSelf: "center" 
+  },
+  buttonText: { 
+    color: "#fff", 
+    fontWeight: "bold", 
+    fontSize: 18 
+  },
+  link: { 
+    marginTop: 12, 
+    color: "#00b2e1", 
+    textAlign: "center"
+  },
 });
