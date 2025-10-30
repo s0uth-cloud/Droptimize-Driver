@@ -1,0 +1,2 @@
+Chart Pallette:
+["#29bf12","#f21b3f","#ff9914", "#c4cad0"]
