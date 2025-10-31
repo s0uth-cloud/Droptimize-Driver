@@ -85,13 +85,13 @@ android {
     ndkVersion rootProject.ext.ndkVersion
 
     buildToolsVersion rootProject.ext.buildToolsVersion
-    compileSdk 35
+    compileSdk rootProject.ext.compileSdkVersion
 
     namespace 'com.Droptimize.app'
     defaultConfig {
         applicationId 'com.Droptimize.app'
-        minSdkVersion 24
-        targetSdkVersion 35
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0.0"
     }
