@@ -9,7 +9,7 @@ export default {
     icon: "./assets/images/icon.png",
     scheme: "droptimize",
     userInterfaceStyle: "automatic",
-    newArchEnabled: true,
+    newArchEnabled: false,
     ios: {
       supportsTablet: true,
     },
@@ -19,8 +19,21 @@ export default {
         backgroundColor: "#ffffff",
       },
       edgeToEdgeEnabled: true,
-      package: "com.Droptimize.app",
-      permissions: ["READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE"],
+      package: "com.droptimize.app",
+      permissions: [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ],
+      config: {
+        googleMaps: {
+          apiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY
+        }
+      }
     },
     web: {
       bundler: "metro",
@@ -41,6 +54,26 @@ export default {
       "expo-asset",
       "expo-font",
       "expo-web-browser",
+      [
+        "expo-location",
+        {
+          locationAlwaysAndWhenInUsePermission: "Allow $(PRODUCT_NAME) to access your location.",
+          locationWhenInUsePermission: "Allow $(PRODUCT_NAME) to access your location."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          photosPermission: "Allow $(PRODUCT_NAME) to access your photos.",
+          cameraPermission: "Allow $(PRODUCT_NAME) to access your camera."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          cameraPermission: "Allow $(PRODUCT_NAME) to access your camera."
+        }
+      ]
     ],
     experiments: {
       typedRoutes: true,

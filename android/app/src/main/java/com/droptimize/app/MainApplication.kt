@@ -1,4 +1,4 @@
-package com.Droptimize.app
+package com.droptimize.app
 
 import android.app.Application
 import android.content.res.Configuration

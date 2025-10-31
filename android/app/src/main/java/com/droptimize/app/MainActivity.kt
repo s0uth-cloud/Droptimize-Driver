@@ -1,4 +1,4 @@
-package com.Droptimize.app
+package com.droptimize.app
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build
