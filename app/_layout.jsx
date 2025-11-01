@@ -1,15 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
-import * as Location from "expo-location";
 import { Stack, useRouter } from "expo-router";
-import * as Speech from "expo-speech";
-import * as SplashScreen from "expo-splash-screen";
-import { onAuthStateChanged, signOut } from "firebase/auth";
-import { doc, getDoc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   Dimensions,
   Image,
@@ -20,289 +14,72 @@ import {
   View,
 } from "react-native";
 import Navigation from "../components/Navigation";
-import { auth, db } from "../firebaseConfig";
-
-SplashScreen.preventAutoHideAsync();
 
 const logo = require("../assets/images/logo.png");
 const { width } = Dimensions.get("window");
 const DRAWER_WIDTH = width * 0.75;
 
 export default function RootLayout() {
-  const [fontsLoaded, fontError] = useFonts({
-    "LEMONMILK-Bold": require("../assets/fonts/LEMONMILK-Bold.otf"),
-  });
-
-  const [loading, setLoading] = useState(true);
-  const [initialRoute, setInitialRoute] = useState("Login");
-  const [userData, setUserData] = useState(null);
-
+  const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
-  const router = useRouter();
 
-  const navigatedRef = useRef(false);
-  const go = (path) => {
-    if (!navigatedRef.current) {
-      navigatedRef.current = true;
-      router.replace(path);
-    }
-  };
+  // ✅ Load both LEMONMILK and Lexend fonts globally
+  const [fontsLoaded, fontError] = useFonts({
+    "LEMONMILK-Bold": require("../assets/fonts/LEMONMILK-Bold.otf"),
+    "Lexend-Regular": require("../assets/fonts/Lexend-Regular.ttf"),
+    "Lexend-Medium": require("../assets/fonts/Lexend-Medium.ttf"),
+    "Lexend-Bold": require("../assets/fonts/Lexend-Bold.ttf"),
+  });
 
-  const locationSubRef = useRef(null);
-  const lastWriteTsRef = useRef(0);
-
-  const ensuredViolationsRef = useRef(false);
-  const isAlertingViolationRef = useRef(false);
+  if (!fontsLoaded && !fontError) {
+    // Simple loading fallback while fonts load
+    return (
+      <View style={styles.loaderContainer}>
+        <Image source={logo} style={{ width: 180, height: 40, resizeMode: "contain" }} />
+        <ActivityIndicator size="large" color="#00b2e1" />
+      </View>
+    );
+  }
 
   const openMenu = () => {
     setMenuOpen(true);
     Animated.timing(slideAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start();
   };
+
   const closeMenu = () => {
-    Animated.timing(slideAnim, { toValue: -DRAWER_WIDTH, duration: 250, useNativeDriver: true }).start(() => setMenuOpen(false));
+    Animated.timing(slideAnim, { toValue: -DRAWER_WIDTH, duration: 250, useNativeDriver: true }).start(() =>
+      setMenuOpen(false)
+    );
   };
+
   const BurgerButton = () => (
     <TouchableOpacity onPress={openMenu} style={{ marginLeft: 10 }}>
       <Ionicons name="menu" size={28} color="#333" />
     </TouchableOpacity>
   );
 
-  useEffect(() => {
-    const hideSplash = async () => {
-      try {
-        await SplashScreen.hideAsync();
-      } catch {}
-    };
-    if (fontsLoaded || fontError) hideSplash();
-    const timer = setTimeout(() => hideSplash(), 3000);
-    return () => clearTimeout(timer);
-  }, [fontsLoaded, fontError]);
-
-  const stopLocationWatch = () => {
-    if (locationSubRef.current) {
-      locationSubRef.current.remove();
-      locationSubRef.current = null;
-    }
-  };
-
-  const startLocationWatch = async (uid) => {
-    try {
-      if (locationSubRef.current) return;
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert("Location Permission", "Location permission is required to update delivery location.");
-        return;
-      }
-      const initial = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      const initialSpeedKmh = typeof initial.coords.speed === "number" && isFinite(initial.coords.speed) ? Math.max(0, initial.coords.speed * 3.6) : null;
-
-      await updateDoc(doc(db, "users", uid), {
-        location: {
-          latitude: initial.coords.latitude,
-          longitude: initial.coords.longitude,
-          speedKmh: initialSpeedKmh,
-          heading: typeof initial.coords.heading === "number" ? initial.coords.heading : null,
-          accuracy: typeof initial.coords.accuracy === "number" ? initial.coords.accuracy : null,
-        },
-        lastLocationAt: serverTimestamp(),
-      });
-
-      locationSubRef.current = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.Balanced, timeInterval: 10000, distanceInterval: 25 },
-        async (pos) => {
-          const now = Date.now();
-          if (now - lastWriteTsRef.current < 5000) return;
-          lastWriteTsRef.current = now;
-
-          let speedKmh = null;
-          if (typeof pos.coords.speed === "number" && isFinite(pos.coords.speed)) {
-            speedKmh = Math.max(0, pos.coords.speed * 3.6);
-          }
-          try {
-            await updateDoc(doc(db, "users", uid), {
-              location: {
-                latitude: pos.coords.latitude,
-                longitude: pos.coords.longitude,
-                speedKmh,
-                heading: typeof pos.coords.heading === "number" ? pos.coords.heading : null,
-                accuracy: typeof pos.coords.accuracy === "number" ? pos.coords.accuracy : null,
-              },
-              lastLocationAt: serverTimestamp(),
-            });
-          } catch {}
-        }
-      );
-    } catch {}
-  };
-
-  const speak = (msg) => {
-    try {
-      Speech.stop();
-      Speech.speak(msg, { language: "en-US", rate: 1.0, pitch: 1.0, volume: 1.0 });
-    } catch {}
-  };
-
-  const showViolationsSequentially = async (userRef, currentList) => {
-    if (isAlertingViolationRef.current) return;
-    const hasUnconfirmed = (Array.isArray(currentList) ? currentList : []).some((v) => !(v && v.confirmed === true));
-    if (!hasUnconfirmed) return;
-
-    isAlertingViolationRef.current = true;
-
-    const showNext = async () => {
-      const freshSnap = await getDoc(userRef);
-      const violations = freshSnap.exists() ? freshSnap.data()?.violations || [] : [];
-      const nextIdx = violations.findIndex((v) => !(v && v.confirmed === true));
-      if (nextIdx === -1) {
-        isAlertingViolationRef.current = false;
-        return;
-      }
-
-      const v = violations[nextIdx] || {};
-      const lat = v?.driverLocation?.latitude ?? v?.driverLocation?.lat;
-      const lng = v?.driverLocation?.longitude ?? v?.driverLocation?.lng;
-      const when = v?.issuedAt?.toDate?.() ? v.issuedAt.toDate().toLocaleString() : "";
-
-      const lines = [
-        v?.message || v?.title || v?.code || "Violation",
-        when ? `When: ${when}` : null,
-        typeof lat === "number" && typeof lng === "number" ? `Location: ${lat.toFixed(6)}, ${lng.toFixed(6)}` : null,
-        Number.isFinite(v?.avgSpeed) ? `Average speed: ${v.avgSpeed} kilometers per hour` : null,
-        Number.isFinite(v?.topSpeed) ? `Top speed: ${v.topSpeed} kilometers per hour` : null,
-        Number.isFinite(v?.speedAtIssue) ? `Speed at issue: ${v.speedAtIssue} kilometers per hour` : null,
-      ].filter(Boolean);
-
-      const spoken = lines.join(". ");
-      speak(spoken);
-
-      Alert.alert(
-        "Notice of Violation",
-        lines.join("\n"),
-        [
-          {
-            text: "OK",
-            onPress: async () => {
-              try {
-                Speech.stop();
-                const refSnap = await getDoc(userRef);
-                const arr = refSnap.exists() ? refSnap.data()?.violations || [] : [];
-                const idxToMark = arr.findIndex((x) => !(x && x.confirmed === true));
-                if (idxToMark >= 0) {
-                  const updated = arr.map((item, i) => (i === idxToMark ? { ...(item || {}), confirmed: true } : item));
-                  await updateDoc(userRef, { violations: updated });
-                }
-                showNext();
-              } catch {
-                isAlertingViolationRef.current = false;
-              }
-            },
-          },
-        ],
-        { cancelable: false }
-      );
-    };
-
-    showNext();
-  };
-
-  useEffect(() => {
-    let userDocUnsub = null;
-
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      try {
-        stopLocationWatch();
-        navigatedRef.current = false;
-
-        if (!user) {
-          setUserData(null);
-          setInitialRoute("Login");
-          go("Login");
-          return;
-        }
-
-        const userRef = doc(db, "users", user.uid);
-        const snap = await getDoc(userRef);
-        if (!snap.exists()) {
-          await signOut(auth);
-          setUserData(null);
-          setInitialRoute("Login");
-          go("Login");
-          return;
-        }
-
-        userDocUnsub = onSnapshot(userRef, async (docSnap) => {
-          if (!docSnap.exists()) return;
-          const data = docSnap.data() || {};
-          setUserData(data);
-
-          if (typeof data.violations === "undefined" && !ensuredViolationsRef.current) {
-            try {
-              ensuredViolationsRef.current = true;
-              await updateDoc(userRef, { violations: [] });
-            } catch {}
-          }
-
-          if (Array.isArray(data.violations)) {
-            const hasUnconfirmed = data.violations.some((v) => !(v && v.confirmed === true));
-            if (hasUnconfirmed) {
-              showViolationsSequentially(userRef, data.violations);
-            }
-          }
-
-          const needsSetup = !data.accountSetupComplete || !data.vehicleSetupComplete;
-          const dest = needsSetup ? "AccountSetup" : "Home";
-          setInitialRoute(dest);
-          go(dest);
-
-          const status = (data.status || "").toString().toLowerCase();
-          if (status === "delivering") startLocationWatch(user.uid);
-          else stopLocationWatch();
-        });
-      } catch {
-        await signOut(auth);
-        setUserData(null);
-        setInitialRoute("Login");
-        go("Login");
-      } finally {
-        setLoading(false);
-      }
-    });
-
-    return () => {
-      unsubscribe();
-      if (userDocUnsub) userDocUnsub();
-      stopLocationWatch();
-      Speech.stop();
-    };
-  }, [router]);
-
-  if (!fontsLoaded && !fontError) return null;
-
-  if (loading) {
-    return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator size="large" />
-      </View>
-    );
-  }
-
   return (
     <SafeAreaView style={{ flex: 1 }}>
       <Stack
-        initialRouteName={initialRoute}
         screenOptions={{
           headerShown: true,
           headerTitleAlign: "center",
-          headerStyle: { elevation: 0, shadowOpacity: 0, backgroundColor: "#fff" },
+          headerStyle: { backgroundColor: "#fff", elevation: 0, shadowOpacity: 0 },
           headerLeft: () => <BurgerButton />,
-          headerTitle: () => <Image source={logo} style={{ width: 160, height: 35 }} resizeMode="contain" />,
+          headerTitle: () => (
+            <Image source={logo} style={{ width: 160, height: 35 }} resizeMode="contain" />
+          ),
         }}
       >
+        {/* Hide headers for auth/setup routes */}
+        <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="Login" options={{ headerShown: false }} />
         <Stack.Screen name="SignUp" options={{ headerShown: false }} />
         <Stack.Screen name="AccountSetup" options={{ headerShown: false }} />
         <Stack.Screen name="PreferredRoutesSetup" options={{ headerShown: false }} />
+
+        {/* Regular app pages (show header + burger) */}
         <Stack.Screen name="Home" options={{ title: "" }} />
         <Stack.Screen name="Profile" options={{ title: "Profile" }} />
         <Stack.Screen name="Parcels" options={{ title: "Parcels" }} />
@@ -316,7 +93,13 @@ export default function RootLayout() {
             <View style={styles.overlay} />
           </TouchableWithoutFeedback>
           <Animated.View style={[styles.drawer, { transform: [{ translateX: slideAnim }] }]}>
-            <Navigation userData={userData} onNavigate={(path) => { closeMenu(); router.replace(path); }} />
+            {/* ✅ Pass router.replace directly for navigation */}
+            <Navigation
+              onNavigate={(path) => {
+                closeMenu();
+                router.replace(path);
+              }}
+            />
           </Animated.View>
         </>
       )}
@@ -325,6 +108,12 @@ export default function RootLayout() {
 }
 
 const styles = StyleSheet.create({
+  loaderContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
   overlay: {
     position: "absolute",
     top: 0,
@@ -349,4 +138,3 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
   },
 });
-

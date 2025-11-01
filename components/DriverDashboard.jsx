@@ -111,7 +111,7 @@ export default function DriverDashboard() {
   const next = nextDelivery || {
     recipient: "No delivery assigned",
     address: "-",
-    contact: "-",
+    recipientContact: "-",
     parcelId: "-",
   };
 
@@ -180,7 +180,7 @@ export default function DriverDashboard() {
         </View>
         <View style={styles.detailRow}>
           <Text style={styles.label}>Contact:</Text>
-          <Text style={styles.value}>{next.contact}</Text>
+          <Text style={styles.value}>{next.recipientContact}</Text>
         </View>
         <View style={styles.detailRow}>
           <Text style={styles.label}>Parcel ID:</Text>
