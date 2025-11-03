@@ -82,6 +82,7 @@ export default function RootLayout() {
           headerTitle: () => <Image source={logo} style={{ width: 160, height: 35 }} resizeMode="contain" />,
         }}
       >
+        <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="Login" options={{ headerShown: false }} />
         <Stack.Screen name="SignUp" options={{ headerShown: false }} />
         <Stack.Screen name="AccountSetup" options={{ headerShown: false }} />

@@ -132,7 +132,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 16,
     paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 0,
+    paddingBottom: 20,
   },
   title: {
     fontSize: 18,
