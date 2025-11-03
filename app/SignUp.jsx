@@ -58,9 +58,13 @@ export default function SignUp() {
                 field === "email" ? "Email" :
                 field === "password" ? "Password" : "Confirm Password"
               }
+              placeholderTextColor="#999"
               value={formData[field]}
               secureTextEntry={field.toLowerCase().includes("password")}
               onChangeText={(text) => handleChange(field, text)}
+              underlineColorAndroid="transparent"
+              autoCorrect={false}
+              autoCapitalize={field === "email" ? "none" : "words"}
             />
             {errors[field] && <Text style={styles.errorText}>{errors[field]}</Text>}
           </View>
@@ -93,14 +97,17 @@ const styles = StyleSheet.create({
     color: "#00b2e1" 
   },
   input: { 
-    width: "100%", 
+    width: "100%",
+    height: 50,
     padding: 12, 
     borderWidth: 1, 
     borderColor: "#ccc", 
     borderRadius: 6, 
     marginBottom: 4,
     fontFamily: "Lexend-Regular",
-    color: "#ccc"
+    fontSize: 16,
+    color: "#000",
+    backgroundColor: "#fff",
   },
   errorInput: { 
     borderColor: "#f21b3f" 

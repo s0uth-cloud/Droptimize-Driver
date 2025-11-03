@@ -52,17 +52,20 @@ export default function Login() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Login</Text>
+      <Text style={styles.title}>LOGIN</Text>
       {["email", "password"].map((field) => (
         <View key={field}>
           <TextInput
             style={[styles.input, errors[field] && styles.inputError]}
             placeholder={field === "email" ? "Email" : "Password"}
+            placeholderTextColor="#999"
             secureTextEntry={field === "password"}
             value={formData[field]}
             onChangeText={(text) => handleChange(field, text)}
             keyboardType={field === "email" ? "email-address" : "default"}
             autoCapitalize="none"
+            underlineColorAndroid="transparent"
+            autoCorrect={false}
           />
           {errors[field] && <Text style={styles.errorText}>{errors[field]}</Text>}
         </View>
@@ -96,14 +99,17 @@ const styles = StyleSheet.create({
     color: "#00b2e1" 
   },
   input: { 
-    width: "100%", 
+    width: "100%",
+    height: 50,
     padding: 12, 
     borderWidth: 1, 
     borderColor: "#ccc", 
     borderRadius: 6, 
     marginBottom: 4,
     fontFamily: "Lexend-Regular",
-    color: "#ccc"
+    fontSize: 16,
+    color: "#000",
+    backgroundColor: "#fff",
   },
   inputError: { 
     borderColor: "#f21b3f" 

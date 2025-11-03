@@ -33,14 +33,12 @@ export default function AccountSetup() {
     { label: "Truck", value: "truck" },
   ]);
 
-  // Load saved form data when screen comes into focus
   useFocusEffect(
     useCallback(() => {
       loadFormData();
     }, [])
   );
 
-  // Handle scanned QR code
   useEffect(() => {
     if (scannedJoinCode) {
       setFormData((prev) => {
@@ -51,7 +49,6 @@ export default function AccountSetup() {
     }
   }, [scannedJoinCode]);
 
-  // Save form data to AsyncStorage
   const saveFormData = async (data, vType) => {
     try {
       await AsyncStorage.setItem(
@@ -63,7 +60,6 @@ export default function AccountSetup() {
     }
   };
 
-  // Load form data from AsyncStorage
   const loadFormData = async () => {
     try {
       const saved = await AsyncStorage.getItem(FORM_STORAGE_KEY);
@@ -77,7 +73,6 @@ export default function AccountSetup() {
     }
   };
 
-  // Clear form data from storage
   const clearFormData = async () => {
     try {
       await AsyncStorage.removeItem(FORM_STORAGE_KEY);
@@ -130,12 +125,9 @@ export default function AccountSetup() {
       }
 
       const userRef = doc(db, "users", currentUser.uid);
-
-      // First check if user document exists
       const userSnap = await getDoc(userRef);
       
       if (userSnap.exists()) {
-        // Update existing document
         await setDoc(
           userRef,
           {
@@ -152,7 +144,6 @@ export default function AccountSetup() {
           { merge: true }
         );
       } else {
-        // Create new document with all required fields
         await setDoc(userRef, {
           uid: currentUser.uid,
           email: currentUser.email,
@@ -173,7 +164,6 @@ export default function AccountSetup() {
         });
       }
 
-      // Clear saved form data after successful submission
       await clearFormData();
 
       const updatedUserSnap = await getDoc(userRef);
@@ -186,9 +176,6 @@ export default function AccountSetup() {
       }
     } catch (err) {
       console.error("Error saving setup:", err);
-      console.error("Error code:", err.code);
-      console.error("Error message:", err.message);
-      console.error("Full error:", JSON.stringify(err, null, 2));
       setErrors({ general: `Failed to save data: ${err.message}` });
     } finally {
       setLoading(false);
@@ -210,15 +197,17 @@ export default function AccountSetup() {
             <TextInput
               style={[styles.input, errors[key] && styles.inputError]}
               placeholder={placeholder}
+              placeholderTextColor="#999"
               value={formData[key]}
               onChangeText={(text) => handleChange(key, text)}
               keyboardType={keyboard}
+              underlineColorAndroid="transparent"
+              autoCorrect={false}
             />
             {errors[key] && <Text style={styles.errorText}>{errors[key]}</Text>}
           </View>
         ))}
 
-        {/* Vehicle Type Dropdown */}
         <DropDownPicker
           open={open}
           value={vehicleType}
@@ -229,19 +218,27 @@ export default function AccountSetup() {
           placeholder="Select vehicle type..."
           style={[styles.dropdown, errors.vehicleType && styles.inputError]}
           onChangeValue={handleVehicleTypeChange}
+          textStyle={{ fontSize: 16, color: "#000" }}
+          placeholderStyle={{ color: "#999" }}
         />
         {errors.vehicleType && <Text style={styles.errorText}>{errors.vehicleType}</Text>}
 
-        {/* Join Code Input with QR */}
         <View style={[styles.inputWrapper, errors.joinCode && styles.inputError]}>
           <TextInput
             style={styles.joinCodeInput}
             placeholder="Company Join Code"
+            placeholderTextColor="#999"
             value={formData.joinCode}
             onChangeText={(text) => handleChange("joinCode", text)}
+            underlineColorAndroid="transparent"
+            autoCorrect={false}
+            autoCapitalize="characters"
           />
-          <TouchableOpacity onPress={() => router.push("/ScanQR")}>
-            <Ionicons name="qr-code-outline" size={24} color="#00b2e1" />
+          <TouchableOpacity 
+            onPress={() => router.push("/ScanQR")}
+            style={styles.qrButton}
+          >
+            <Ionicons name="qr-code-outline" size={28} color="#00b2e1" />
           </TouchableOpacity>
         </View>
         {errors.joinCode && <Text style={styles.errorText}>{errors.joinCode}</Text>}
@@ -276,8 +273,11 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 6,
     width: "100%",
+    height: 50,
     fontFamily: "Lexend-Regular",
-    color: "#ccc"
+    fontSize: 16,
+    color: "#000",
+    backgroundColor: "#fff",
   },
   inputWrapper: {
     flexDirection: "row",
@@ -287,18 +287,34 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     paddingHorizontal: 12,
     marginBottom: 6,
-    width: "100%"
+    width: "100%",
+    height: 50,
+    backgroundColor: "#fff",
   },
   joinCodeInput: {
     flex: 1,
-    paddingVertical: 12,
-    paddingRight: 10
+    height: 50,
+    paddingVertical: 0,
+    paddingRight: 10,
+    fontSize: 16,
+    color: "#000",
+    fontFamily: "Lexend-Regular",
+  },
+  qrButton: {
+    padding: 8,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#f0f0f0",
+    borderRadius: 4,
+    height: 40,
+    width: 40,
   },
   dropdown: {
     borderColor: "#ccc",
     marginBottom: 6,
     width: "100%",
     fontFamily: "Lexend-Regular",
+    backgroundColor: "#fff",
   },
   inputError: {
     borderColor: "#f21b3f"
