@@ -103,6 +103,7 @@ const styles = StyleSheet.create({
     borderRadius: 6, 
     marginBottom: 4,
     fontFamily: "Lexend-Regular",
+    color: "#ccc"
   },
   inputError: { 
     borderColor: "#f21b3f" 

@@ -277,6 +277,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     width: "100%",
     fontFamily: "Lexend-Regular",
+    color: "#ccc"
   },
   inputWrapper: {
     flexDirection: "row",

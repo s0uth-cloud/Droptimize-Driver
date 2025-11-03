@@ -56,7 +56,17 @@ export default {
         },
       ],
       "expo-asset",
-      "expo-font",
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/LEMONMILK-Bold.otf",
+            "./assets/fonts/Lexend-Regular.ttf",
+            "./assets/fonts/Lexend-Medium.ttf",
+            "./assets/fonts/Lexend-Bold.ttf"
+          ]
+        },
+      ],
       "expo-web-browser",
       [
         "expo-location",

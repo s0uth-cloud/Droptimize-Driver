@@ -100,6 +100,7 @@ const styles = StyleSheet.create({
     borderRadius: 6, 
     marginBottom: 4,
     fontFamily: "Lexend-Regular",
+    color: "#ccc"
   },
   errorInput: { 
     borderColor: "#f21b3f" 
