@@ -2,6 +2,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import { Stack, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
+import { onAuthStateChanged } from "firebase/auth";
+import { doc, onSnapshot } from "firebase/firestore";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -15,6 +17,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Navigation from "../components/Navigation";
+import { auth, db } from "../firebaseConfig";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -32,23 +35,34 @@ export default function RootLayout() {
 
   const [appReady, setAppReady] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [userData, setUserData] = useState(null);
   const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
   const router = useRouter();
 
-  const openMenu = () => {
+  const openMenu = useCallback(() => {
     setMenuOpen(true);
-    Animated.timing(slideAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start();
-  };
-  const closeMenu = () => {
-    Animated.timing(slideAnim, { toValue: -DRAWER_WIDTH, duration: 250, useNativeDriver: true }).start(() =>
-      setMenuOpen(false)
-    );
-  };
+    Animated.timing(slideAnim, {
+      toValue: 0,
+      duration: 250,
+      useNativeDriver: true,
+    }).start();
+  }, [slideAnim]);
 
-  const BurgerButton = () => (
-    <TouchableOpacity onPress={openMenu} style={{ marginLeft: 10 }}>
-      <Ionicons name="menu" size={28} color="#333" />
-    </TouchableOpacity>
+  const closeMenu = useCallback(() => {
+    Animated.timing(slideAnim, {
+      toValue: -DRAWER_WIDTH,
+      duration: 250,
+      useNativeDriver: true,
+    }).start(() => setMenuOpen(false));
+  }, [slideAnim]);
+
+  const BurgerButton = useCallback(
+    () => (
+      <TouchableOpacity onPress={openMenu} style={styles.burgerButton}>
+        <Ionicons name="menu" size={28} color="#333" />
+      </TouchableOpacity>
+    ),
+    [openMenu]
   );
 
   useEffect(() => {
@@ -63,23 +77,51 @@ export default function RootLayout() {
     }
   }, [appReady]);
 
+  // Listen to user data for Navigation component
+  useEffect(() => {
+    let userDocUnsub = null;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setUserData(null);
+        return;
+      }
+
+      const userRef = doc(db, "users", user.uid);
+      userDocUnsub = onSnapshot(userRef, (docSnap) => {
+        if (docSnap.exists()) {
+          setUserData(docSnap.data());
+        }
+      });
+    });
+
+    return () => {
+      unsubscribeAuth();
+      if (userDocUnsub) userDocUnsub();
+    };
+  }, []);
+
   if (!appReady) {
     return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator size="large" />
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#00b2e1" />
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={{ flex: 1 }} edges={["left", "right", "bottom"]} onLayout={onLayoutRootView}>
+    <SafeAreaView
+      style={styles.safeArea}
+      edges={["left", "right", "bottom"]}
+      onLayout={onLayoutRootView}
+    >
       <Stack
         screenOptions={{
           headerShown: true,
           headerTitleAlign: "center",
-          headerStyle: { elevation: 0, shadowOpacity: 0, backgroundColor: "#fff" },
-          headerLeft: () => <BurgerButton />,
-          headerTitle: () => <Image source={logo} style={{ width: 160, height: 35 }} resizeMode="contain" />,
+          headerStyle: styles.headerStyle,
+          headerLeft: BurgerButton,
+          headerTitle: () => <Image source={logo} style={styles.headerLogo} resizeMode="contain" />,
         }}
       >
         <Stack.Screen name="index" options={{ headerShown: false }} />
@@ -102,6 +144,7 @@ export default function RootLayout() {
           </TouchableWithoutFeedback>
           <Animated.View style={[styles.drawer, { transform: [{ translateX: slideAnim }] }]}>
             <Navigation
+              userData={userData}
               onNavigate={(path) => {
                 closeMenu();
                 router.replace(path);
@@ -115,6 +158,26 @@ export default function RootLayout() {
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  burgerButton: {
+    marginLeft: 10,
+  },
+  headerStyle: {
+    elevation: 0,
+    shadowOpacity: 0,
+    backgroundColor: "#fff",
+  },
+  headerLogo: {
+    width: 160,
+    height: 35,
+  },
   overlay: {
     position: "absolute",
     top: 0,
