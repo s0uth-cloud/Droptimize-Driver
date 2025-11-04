@@ -277,7 +277,7 @@ export function OverspeedProvider({ children }) {
                   });
                   Alert.alert(
                     "Notice of Violation",
-                    "Open your violations to review.",
+                    "Open your Driving Stats to review your violation.",
                     [{ text: "OK" }],
                     { cancelable: false }
                   );
