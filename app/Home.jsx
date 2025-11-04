@@ -1,3 +1,4 @@
+import * as Location from "expo-location";
 import { router } from "expo-router";
 import {
   collection,
@@ -32,7 +33,7 @@ export default function Home() {
 
   // Live driving telemetry (no speed limit)
   const [speed, setSpeed] = useState(0);
-
+  const [location, setLocation] = useState(null);
   const { width: screenWidth } = Dimensions.get("window");
   const user = auth.currentUser;
 
@@ -71,20 +72,41 @@ export default function Home() {
         if (!snap.exists()) return;
         const d = snap.data();
         setUserData(d);
-
-        // Current speed from Expo updater (km/h)
-        const liveKmh =
-          typeof d?.location?.speedKmh === "number" && isFinite(d.location.speedKmh)
-            ? Math.round(d.location.speedKmh)
-            : typeof d?.speed === "number" && isFinite(d.speed)
-            ? Math.round(d.speed)
-            : 0;
-        setSpeed(liveKmh);
-      },
-      (err) => console.warn("Home user onSnapshot error:", err)
-    );
+    });
     return () => unsub();
   }, [user]);
+
+  useEffect(() => {
+    let locationSub;
+    const startTracking = async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") return;
+      locationSub = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.Highest, distanceInterval: 1 },
+        (pos) => {
+          const kmh = pos.coords.speed ? Math.round(pos.coords.speed * 3.6) : 0;
+          setSpeed(kmh);
+          setLocation({
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+          });
+          if (user) {
+            updateDoc(doc(db, "users", user.uid), {
+              location: {
+                latitude: pos.coords.latitude,
+                longitude: pos.coords.longitude,
+                speedKmh: kmh,
+              },
+            });
+          }
+        }
+      );
+    };
+    if (userData?.status === "Delivering") startTracking();
+    return () => {
+      if (locationSub) locationSub.remove();
+    };
+  }, [userData?.status]);
 
   const fetchParcels = async (data) => {
     if (!user) return;
@@ -160,7 +182,7 @@ export default function Home() {
   const hasParcels = deliveries.length > 0;
 
   return (
-    <SafeAreaView style={styles.safe} edges={[ 'left', 'right' ]}>
+    <SafeAreaView style={styles.safe} edges={["left", "right"]}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={[styles.topSection, { minHeight: screenWidth * 0.6 }]}>
           {status === "Offline" && (

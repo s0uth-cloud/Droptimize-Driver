@@ -4,25 +4,47 @@ import { onAuthStateChanged } from "firebase/auth";
 import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
 import haversine from "haversine-distance";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from "react-native";
 import MapView, { Circle, Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import MapViewDirections from "react-native-maps-directions";
 import Svg, { Polygon } from "react-native-svg";
 import { auth, db } from "../firebaseConfig";
 
 const GOOGLE_MAPS_APIKEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || "";
-
+const VIOLATION_COOLDOWN_MS = 60000;
+const DEFAULT_SPEED_LIMIT = 80;
+const CROSSWALK_LIMIT = 25;
+const DEFAULT_RADIUS = 15;
+const OVERPASS_RADIUS = 1000;
 const OVERPASS_ENDPOINTS = [
   "https://overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
   "https://overpass.openstreetmap.ru/api/interpreter",
 ];
 
+const CATEGORY_COLORS = {
+  Crosswalk: "#00bfff",
+  School: "#ff9800",
+  Church: "#9c27b0",
+  Curve: "#4caf50",
+  Slippery: "#f44336",
+  Default: "#9e9e9e",
+};
+
 async function fetchOverpass(queryStr, { timeoutMs = 15000 } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const body = `data=${encodeURIComponent(queryStr)}`;
   let lastErr;
+  
   for (const base of OVERPASS_ENDPOINTS) {
     try {
       const res = await fetch(base, {
@@ -43,7 +65,10 @@ async function fetchOverpass(queryStr, { timeoutMs = 15000 } = {}) {
       lastErr = e;
       try {
         const url = `${base}?data=${encodeURIComponent(queryStr)}`;
-        const res = await fetch(url, { headers: { Accept: "application/json" }, signal: controller.signal });
+        const res = await fetch(url, { 
+          headers: { Accept: "application/json" }, 
+          signal: controller.signal 
+        });
         const text = await res.text();
         if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} (GET): ${text?.slice(0, 200)}`);
         const parsed = JSON.parse(text);
@@ -80,7 +105,10 @@ function smoothHeading(prevDeg, nextDeg) {
 }
 
 function metersBetween(a, b) {
-  return haversine({ lat: a.latitude, lon: a.longitude }, { lat: b.latitude, lon: b.longitude });
+  return haversine(
+    { lat: a.latitude, lon: a.longitude }, 
+    { lat: b.latitude, lon: b.longitude }
+  );
 }
 
 function getEffectiveLimit(limit) {
@@ -107,44 +135,50 @@ export default function Map({ user: passedUser }) {
   const [activeSlowdown, setActiveSlowdown] = useState(null);
   const [showSlowdownWarning, setShowSlowdownWarning] = useState(false);
 
-  // NEW: prep/overlay states
+  // Boot/overlay states
   const [mapReady, setMapReady] = useState(false);
   const [parcelsLoaded, setParcelsLoaded] = useState(false);
   const [slowdownsLoaded, setSlowdownsLoaded] = useState(false);
   const [routeReady, setRouteReady] = useState(true);
-  const firstFreshFixRef = useRef(false);
+  const [bootDone, setBootDone] = useState(false);
 
+  // Refs
   const mapRef = useRef(null);
   const locationSubscription = useRef(null);
   const headingSubscription = useRef(null);
   const prevCoordRef = useRef(null);
   const prevTimeRef = useRef(null);
   const lastCourseRef = useRef(null);
-  const cameraZoomRef = useRef(10);
   const lastCamUpdateRef = useRef(0);
   const routeFitDoneRef = useRef(false);
   const zoomHazardsDoneRef = useRef(false);
+  const firstFreshFixRef = useRef(false);
 
-  const DEFAULT_RADIUS = 15;
-  const OVERPASS_RADIUS = 1000;
+  // Gesture refs
+  const gestureActiveRef = useRef(false);
+  const gestureTimerRef = useRef(null);
+  const userZoomRef = useRef(null);
+  const userPitchRef = useRef(null);
 
-  const CATEGORY_COLORS = {
-    Crosswalk: "#00bfff",
-    School: "#ff9800",
-    Church: "#9c27b0",
-    Curve: "#4caf50",
-    Slippery: "#f44336",
-    Default: "#9e9e9e",
-  };
+  // Violation tracking refs
+  const lastViolationTimeRef = useRef(0);
+  const lastViolationZoneRef = useRef(null);
+
+  const PAUSE_AFTER_GESTURE_MS = 800;
+
   async function getInitialPosition() {
     try {
       await Location.hasServicesEnabledAsync();
       const last = await Location.getLastKnownPositionAsync();
       const now = Date.now();
-      const lastIsFresh = last?.timestamp && now - last.timestamp < 20000; 
+      const lastIsFresh = last?.timestamp && now - last.timestamp < 20000;
       if (last?.coords && lastIsFresh) return last;
+      
       const fresh = await Promise.race([
-        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High, maximumAge: 0 }),
+        Location.getCurrentPositionAsync({ 
+          accuracy: Location.Accuracy.High, 
+          maximumAge: 0 
+        }),
         new Promise((_, rej) => setTimeout(() => rej(new Error("loc-timeout")), 10000)),
       ]);
       return fresh || last || null;
@@ -153,143 +187,14 @@ export default function Map({ user: passedUser }) {
     }
   }
 
+  // Auth listener
   useEffect(() => {
     if (user) return;
     const unsub = onAuthStateChanged(auth, (fbUser) => setUser(fbUser || null));
     return unsub;
   }, [user]);
 
-  useEffect(() => {
-    if (!user) return;
-    (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        setLoading(false);
-        return;
-      }
-      const initial = await getInitialPosition();
-      if (initial?.coords) {
-        setLocation(initial.coords);
-        prevCoordRef.current = initial.coords;
-        prevTimeRef.current = initial.timestamp || Date.now();
-        await loadEverything(initial.coords);
-        setLoading(false);
-      } else {
-        setLoading(false);
-        return;
-      }
-
-      if (!headingSubscription.current) {
-        headingSubscription.current = await Location.watchHeadingAsync((h) => {
-          const hdg = Platform.OS === "ios" ? h.trueHeading ?? h.magHeading ?? 0 : h.magHeading ?? h.trueHeading ?? 0;
-          if (Number.isFinite(hdg)) setHeadingDeg((prev) => smoothHeading(prev, hdg));
-        });
-      }
-
-      locationSubscription.current = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.BestForNavigation, timeInterval: 800, distanceInterval: 1 },
-        async (position) => {
-          const coords = position.coords;
-          setLocation(coords);
-
-          if (!firstFreshFixRef.current) firstFreshFixRef.current = true;
-
-          const gpsKmh = Number.isFinite(coords.speed) ? coords.speed * 3.6 : NaN;
-          let derivedKmh = NaN;
-          if (prevCoordRef.current && prevTimeRef.current) {
-            const distM = metersBetween(
-              { latitude: prevCoordRef.current.latitude, longitude: prevCoordRef.current.longitude },
-              { latitude: coords.latitude, longitude: coords.longitude }
-            );
-            const dt = Math.max(0.5, (position.timestamp - prevTimeRef.current) / 1000);
-            derivedKmh = (distM / dt) * 3.6;
-          }
-          let kmh = Number.isFinite(gpsKmh) ? gpsKmh : Number.isFinite(derivedKmh) ? derivedKmh : 0;
-
-          const dests = parcels.map((p) => ({ latitude: p.destination.latitude, longitude: p.destination.longitude }));
-          let atStop = false;
-          if (dests.length > 0) {
-            const dists = dests.map((d) => metersBetween({ latitude: coords.latitude, longitude: coords.longitude }, d));
-            const minD = Math.min(...dists);
-            if (minD <= 20) atStop = true;
-          }
-          if (kmh < 2 || atStop) kmh = 0;
-          setVehicleSpeed(Math.round(kmh));
-
-          if (prevCoordRef.current) {
-            const moveM = metersBetween(
-              { latitude: prevCoordRef.current.latitude, longitude: prevCoordRef.current.longitude },
-              { latitude: coords.latitude, longitude: coords.longitude }
-            );
-            if (moveM > 1.5) {
-              const course = bearingBetween(prevCoordRef.current, coords);
-              lastCourseRef.current = course;
-              const useCourse = kmh > 3 || !Number.isFinite(headingDeg);
-              if (useCourse) setHeadingDeg((prev) => smoothHeading(prev, course));
-            }
-          }
-          prevCoordRef.current = coords;
-          prevTimeRef.current = position.timestamp || Date.now();
-
-          let nearestLimit = 0;
-          let nearbyZone = null;
-          slowdowns.forEach((s) => {
-            if (!s.location?.lat || !s.location?.lng) return;
-            const dist = metersBetween(coords, { latitude: s.location.lat, longitude: s.location.lng });
-            const zoneRadius = s.radius || DEFAULT_RADIUS;
-            if (dist < zoneRadius) {
-              nearestLimit = s.speedLimit || nearestLimit;
-              nearbyZone = s;
-            }
-          });
-          setSpeedLimit(nearestLimit);
-          if (nearbyZone && (!activeSlowdown || activeSlowdown.id !== nearbyZone.id)) {
-            setActiveSlowdown(nearbyZone);
-            setShowSlowdownWarning(true);
-            setTimeout(() => {
-              setShowSlowdownWarning(false);
-              setActiveSlowdown(null);
-            }, 7000);
-          }
-
-          if (mapRef.current && followPuck) {
-            const now = Date.now();
-            if (now - lastCamUpdateRef.current > 500) {
-              lastCamUpdateRef.current = now;
-              if (cameraZoomRef.current == null) {
-                try {
-                  const cam = await mapRef.current.getCamera();
-                  cameraZoomRef.current = cam?.zoom ?? 10;
-                } catch {
-                  cameraZoomRef.current = 10;
-                }
-              }
-              const az = (lastCourseRef.current ?? headingDeg ?? 0) * (Math.PI / 180);
-              const offsetDistance = 0.0005;
-              const offsetLat = coords.latitude + offsetDistance * Math.cos(az);
-              const offsetLng = coords.longitude + offsetDistance * Math.sin(az);
-              mapRef.current.animateCamera(
-                {
-                  center: { latitude: offsetLat, longitude: offsetLng },
-                  heading: lastCourseRef.current ?? headingDeg ?? 0,
-                  pitch: 50,
-                  zoom: Math.max(10, cameraZoomRef.current ?? 10),
-                },
-                { duration: 500 }
-              );
-            }
-          }
-        }
-      );
-    })();
-    return () => {
-      locationSubscription.current?.remove?.();
-      locationSubscription.current = null;
-      headingSubscription.current?.remove?.();
-      headingSubscription.current = null;
-    };
-  }, [user, slowdowns, followPuck, parcels, headingDeg]);
-
+  // Load data functions
   const loadBranchSlowdowns = async (branchId) => {
     try {
       const branchRef = doc(db, "branches", branchId);
@@ -298,7 +203,7 @@ export default function Map({ user: passedUser }) {
       const branchData = branchSnap.data();
       if (!Array.isArray(branchData.slowdowns)) return [];
       return branchData.slowdowns.map((s, i) => ({
-        id: i,
+        id: `branch_${i}`,
         category: s.category || "Default",
         location: s.location,
         radius: s.radius || DEFAULT_RADIUS,
@@ -321,7 +226,7 @@ export default function Map({ user: passedUser }) {
           category: "Crosswalk",
           location: { lat: el.lat, lng: el.lon },
           radius: DEFAULT_RADIUS,
-          speedLimit: 20,
+          speedLimit: CROSSWALK_LIMIT,
         }));
     } catch {
       return [];
@@ -332,12 +237,20 @@ export default function Map({ user: passedUser }) {
     if (!user) return [];
     try {
       const parcelsCol = collection(db, "parcels");
-      const q = query(parcelsCol, where("driverUid", "==", user.uid), where("status", "==", "Out for Delivery"));
+      const q = query(
+        parcelsCol, 
+        where("driverUid", "==", user.uid), 
+        where("status", "==", "Out for Delivery")
+      );
       const querySnap = await getDocs(q);
       if (querySnap.empty) return [];
       return querySnap.docs
         .map((d) => d.data())
-        .filter((p) => p.destination && typeof p.destination.latitude === "number" && typeof p.destination.longitude === "number");
+        .filter((p) => 
+          p.destination && 
+          typeof p.destination.latitude === "number" && 
+          typeof p.destination.longitude === "number"
+        );
     } catch {
       return [];
     }
@@ -373,6 +286,284 @@ export default function Map({ user: passedUser }) {
     }
   };
 
+  // Main location tracking effect
+  useEffect(() => {
+    if (!user) return;
+
+    (async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        setLoading(false);
+        return;
+      }
+
+      const initial = await getInitialPosition();
+      if (initial?.coords) {
+        setLocation(initial.coords);
+        prevCoordRef.current = initial.coords;
+        prevTimeRef.current = initial.timestamp || Date.now();
+        await loadEverything(initial.coords);
+        setLoading(false);
+      } else {
+        setLoading(false);
+        return;
+      }
+
+      // Start heading subscription
+      if (!headingSubscription.current) {
+        headingSubscription.current = await Location.watchHeadingAsync((h) => {
+          const hdg = Platform.OS === "ios" 
+            ? h.trueHeading ?? h.magHeading ?? 0 
+            : h.magHeading ?? h.trueHeading ?? 0;
+          if (Number.isFinite(hdg)) setHeadingDeg((prev) => smoothHeading(prev, hdg));
+        });
+      }
+
+      // Start location subscription
+      locationSubscription.current = await Location.watchPositionAsync(
+        { 
+          accuracy: Location.Accuracy.BestForNavigation, 
+          timeInterval: 800, 
+          distanceInterval: 1 
+        },
+        async (position) => {
+          const coords = position.coords;
+          setLocation(coords);
+
+          if (!firstFreshFixRef.current) firstFreshFixRef.current = true;
+
+          // Calculate speed
+          const gpsKmh = Number.isFinite(coords.speed) ? coords.speed * 3.6 : NaN;
+          let derivedKmh = NaN;
+          
+          if (prevCoordRef.current && prevTimeRef.current) {
+            const distM = metersBetween(
+              { latitude: prevCoordRef.current.latitude, longitude: prevCoordRef.current.longitude },
+              { latitude: coords.latitude, longitude: coords.longitude }
+            );
+            const dt = Math.max(0.5, (position.timestamp - prevTimeRef.current) / 1000);
+            derivedKmh = (distM / dt) * 3.6;
+          }
+
+          let kmh = Number.isFinite(gpsKmh) ? gpsKmh : Number.isFinite(derivedKmh) ? derivedKmh : 0;
+
+          // Check if at destination
+          const dests = parcels.map((p) => ({ 
+            latitude: p.destination.latitude, 
+            longitude: p.destination.longitude 
+          }));
+          let atStop = false;
+          if (dests.length > 0) {
+            const dists = dests.map((d) => metersBetween(
+              { latitude: coords.latitude, longitude: coords.longitude }, 
+              d
+            ));
+            const minD = Math.min(...dists);
+            if (minD <= 20) atStop = true;
+          }
+
+          if (kmh < 2 || atStop) kmh = 0;
+          setVehicleSpeed(Math.round(kmh));
+
+          // Calculate course/heading
+          if (prevCoordRef.current) {
+            const moveM = metersBetween(
+              { latitude: prevCoordRef.current.latitude, longitude: prevCoordRef.current.longitude },
+              { latitude: coords.latitude, longitude: coords.longitude }
+            );
+            if (moveM > 1.5) {
+              const course = bearingBetween(prevCoordRef.current, coords);
+              lastCourseRef.current = course;
+              const useCourse = kmh > 3 || !Number.isFinite(headingDeg);
+              if (useCourse) setHeadingDeg((prev) => smoothHeading(prev, course));
+            }
+          }
+
+          prevCoordRef.current = coords;
+          prevTimeRef.current = position.timestamp || Date.now();
+
+          // Check slowdown zones
+          let nearestLimit = 0;
+          let nearbyZone = null;
+          let zoneId = null;
+
+          slowdowns.forEach((s) => {
+            if (!s.location?.lat || !s.location?.lng) return;
+            const dist = metersBetween(coords, { 
+              latitude: s.location.lat, 
+              longitude: s.location.lng 
+            });
+            const zoneRadius = s.radius || DEFAULT_RADIUS;
+            
+            if (dist < zoneRadius) {
+              nearestLimit = s.speedLimit || nearestLimit;
+              nearbyZone = s;
+              zoneId = s.id;
+            }
+          });
+
+          setSpeedLimit(nearestLimit);
+
+          // Show slowdown warning
+          if (nearbyZone && (!activeSlowdown || activeSlowdown.id !== nearbyZone.id)) {
+            setActiveSlowdown(nearbyZone);
+            setShowSlowdownWarning(true);
+            setTimeout(() => {
+              setShowSlowdownWarning(false);
+              setActiveSlowdown(null);
+            }, 7000);
+          }
+
+          // Check for speeding violation
+          const effectiveLimit = getEffectiveLimit(nearestLimit || DEFAULT_SPEED_LIMIT);
+          const now = Date.now();
+          
+          if (kmh > effectiveLimit && kmh > 5) {
+            if (
+              now - lastViolationTimeRef.current > VIOLATION_COOLDOWN_MS || 
+              lastViolationZoneRef.current !== zoneId
+            ) {
+              lastViolationTimeRef.current = now;
+              lastViolationZoneRef.current = zoneId;
+              Alert.alert(
+                "Speeding Alert",
+                `Slow Down! You have exceeded the speed limit!`,
+                [{ text: "OK" }],
+                { cancelable: true }
+              );
+            }
+          }
+
+          // Update camera
+          if (mapRef.current && followPuck && !gestureActiveRef.current) {
+            const nowCam = Date.now();
+            if (nowCam - lastCamUpdateRef.current > 500) {
+              lastCamUpdateRef.current = nowCam;
+              const az = (lastCourseRef.current ?? headingDeg ?? 0) * (Math.PI / 180);
+              const offsetDistance = 0.0005;
+              const offsetLat = coords.latitude + offsetDistance * Math.cos(az);
+              const offsetLng = coords.longitude + offsetDistance * Math.sin(az);
+              
+              const camUpdate = {
+                center: { latitude: offsetLat, longitude: offsetLng },
+                heading: lastCourseRef.current ?? headingDeg ?? 0,
+              };
+              
+              if (typeof userZoomRef.current === "number") camUpdate.zoom = userZoomRef.current;
+              if (typeof userPitchRef.current === "number") camUpdate.pitch = userPitchRef.current;
+              
+              mapRef.current.animateCamera(camUpdate, { duration: 500 });
+            }
+          }
+        }
+      );
+    })();
+
+    return () => {
+      locationSubscription.current?.remove?.();
+      locationSubscription.current = null;
+      headingSubscription.current?.remove?.();
+      headingSubscription.current = null;
+    };
+  }, [user, slowdowns, followPuck, parcels, headingDeg]);
+
+  // Fit to hazards once
+  const fitToHazardsOnce = async () => {
+    if (!mapRef.current || zoomHazardsDoneRef.current) return;
+    if (userData?.status === "Delivering" && parcels.length > 0) return;
+    
+    const pts = [];
+    if (location) pts.push({ latitude: location.latitude, longitude: location.longitude });
+    
+    slowdowns.forEach((s) => {
+      if (s?.location?.lat && s?.location?.lng) {
+        pts.push({ latitude: s.location.lat, longitude: s.location.lng });
+      }
+    });
+    
+    if (pts.length < 2) return;
+    
+    try {
+      mapRef.current.fitToCoordinates(pts, {
+        edgePadding: { top: 80, right: 50, bottom: 120, left: 50 },
+        animated: true,
+      });
+      zoomHazardsDoneRef.current = true;
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (!location || slowdowns.length === 0) return;
+    fitToHazardsOnce();
+  }, [slowdowns, location]);
+
+  // Boot overlay logic
+  const needsRoute = userData?.status === "Delivering" && parcels.length > 0 && !!GOOGLE_MAPS_APIKEY;
+
+  useEffect(() => {
+    if (bootDone) return;
+    const ready =
+      mapReady &&
+      firstFreshFixRef.current &&
+      slowdownsLoaded &&
+      parcelsLoaded &&
+      (!needsRoute || routeReady);
+    if (ready) setBootDone(true);
+  }, [bootDone, mapReady, slowdownsLoaded, parcelsLoaded, routeReady, needsRoute]);
+
+  const preparingMsg =
+    !mapReady
+      ? "Preparing map..."
+      : !firstFreshFixRef.current
+      ? "Waiting for GPS fix..."
+      : !slowdownsLoaded
+      ? "Loading hazard zones..."
+      : !parcelsLoaded
+      ? "Loading parcels..."
+      : needsRoute && !routeReady
+      ? "Building route..."
+      : "";
+
+  const showBootOverlay = !bootDone && !!preparingMsg;
+
+  // Camera/gesture functions
+  const saveCameraState = async () => {
+    try {
+      const cam = await mapRef.current?.getCamera?.();
+      if (cam) {
+        if (typeof cam.zoom === "number") userZoomRef.current = cam.zoom;
+        if (typeof cam.pitch === "number") userPitchRef.current = cam.pitch;
+      }
+    } catch {}
+  };
+
+  const quickCenterOnUser = async () => {
+    if (!mapRef.current || !location) return;
+    try {
+      const camUpdate = {
+        center: { latitude: location.latitude, longitude: location.longitude },
+        heading: lastCourseRef.current ?? headingDeg ?? 0,
+      };
+      if (typeof userZoomRef.current === "number") camUpdate.zoom = userZoomRef.current;
+      if (typeof userPitchRef.current === "number") camUpdate.pitch = userPitchRef.current;
+      mapRef.current.animateCamera(camUpdate, { duration: 500 });
+    } catch {}
+  };
+
+  const beginGesture = async () => {
+    gestureActiveRef.current = true;
+    if (gestureTimerRef.current) clearTimeout(gestureTimerRef.current);
+    await saveCameraState();
+  };
+
+  const endGestureSoon = async () => {
+    if (gestureTimerRef.current) clearTimeout(gestureTimerRef.current);
+    await saveCameraState();
+    gestureTimerRef.current = setTimeout(() => {
+      gestureActiveRef.current = false;
+    }, PAUSE_AFTER_GESTURE_MS);
+  };
+
   const getETAColor = () => {
     if (etaMinutes == null) return "#0064b5";
     if (etaMinutes < 15) return "#29bf12";
@@ -380,73 +571,25 @@ export default function Map({ user: passedUser }) {
     return "#f21b3f";
   };
 
-  const quickCenterOnUser = async () => {
-    if (!mapRef.current || !location) return;
-    try {
-      const cam = await mapRef.current.getCamera();
-      mapRef.current.animateCamera(
-        {
-          ...cam,
-          center: { latitude: location.latitude, longitude: location.longitude },
-          heading: lastCourseRef.current ?? headingDeg ?? 0,
-          pitch: 50,
-          zoom: Math.max(16, cam?.zoom ?? 10),
-        },
-        { duration: 500 }
-      );
-    } catch {}
-  };
-
-  const fitToHazardsOnce = async () => {
-    if (!mapRef.current || zoomHazardsDoneRef.current) return;
-    if (userData?.status === "Delivering" && parcels.length > 0) return;
-    const pts = [];
-    if (location) pts.push({ latitude: location.latitude, longitude: location.longitude });
-    slowdowns.forEach((s) => {
-      if (s?.location?.lat && s?.location?.lng) {
-        pts.push({ latitude: s.location.lat, longitude: s.location.lng });
-      }
-    });
-    if (pts.length < 2) return;
-    try {
-      mapRef.current.fitToCoordinates(pts, {
-        edgePadding: { top: 80, right: 50, bottom: 120, left: 50 },
-        animated: true,
-      });
-      setTimeout(async () => {
-        try {
-          const cam = await mapRef.current.getCamera?.();
-          const targetZoom = 16;
-          if ((cam?.zoom ?? 0) < targetZoom) {
-            mapRef.current.animateCamera({ ...cam, zoom: targetZoom }, { duration: 400 });
-          }
-        } catch {}
-      }, 600);
-      zoomHazardsDoneRef.current = true;
-    } catch {}
-  };
-
-  useEffect(() => {
-    if (!location) return;
-    if (slowdowns.length === 0) return;
-    fitToHazardsOnce();
-  }, [slowdowns, location]);
-
-  if (loading)
+  // Loading states
+  if (loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#00b2e1" />
         <Text style={{ marginTop: 15 }}>Getting current location...</Text>
       </View>
     );
+  }
 
-  if (!location)
+  if (!location) {
     return (
       <View style={styles.loadingContainer}>
         <Text>Location unavailable. Please enable GPS / Location Services.</Text>
       </View>
     );
+  }
 
+  // Route calculation
   const destinations = parcels.map((p) => ({
     latitude: p.destination.latitude,
     longitude: p.destination.longitude,
@@ -455,19 +598,13 @@ export default function Map({ user: passedUser }) {
   const finalDestination = destinations[destinations.length - 1];
   const effectiveLimit = getEffectiveLimit(speedLimit);
 
-  const needsRoute = userData?.status === "Delivering" && destinations.length > 0 && !!GOOGLE_MAPS_APIKEY;
-  const preparing =
-    !mapReady ||
-    !firstFreshFixRef.current ||
-    !slowdownsLoaded ||
-    !parcelsLoaded ||
-    (needsRoute && !routeReady);
-
   return (
     <View style={styles.container}>
       {etaMinutes != null && distanceKm != null && (
         <View style={[styles.etaPanel, { backgroundColor: getETAColor() }]}>
-          <Text style={styles.etaText}>{etaMinutes} min • {distanceKm.toFixed(1)} km</Text>
+          <Text style={styles.etaText}>
+            {etaMinutes} min • {distanceKm.toFixed(1)} km
+          </Text>
           <Text style={styles.etaSubText}>Optimized Route</Text>
         </View>
       )}
@@ -483,15 +620,12 @@ export default function Map({ user: passedUser }) {
           latitudeDelta: 0.08,
           longitudeDelta: 0.08,
         }}
-        onMapReady={async () => {
-          try {
-            const cam = await mapRef.current?.getCamera?.();
-            if (!cam || (cam.zoom ?? 0) < 10) {
-              mapRef.current?.animateCamera({ zoom: 10 }, { duration: 400 });
-            }
-            cameraZoomRef.current = Math.max(12, cam?.zoom ?? 10);
-          } catch {}
-          setMapReady(true);
+        onMapReady={() => setMapReady(true)}
+        onTouchStart={beginGesture}
+        onTouchEnd={endGestureSoon}
+        onPanDrag={beginGesture}
+        onRegionChangeComplete={(_, details) => {
+          if (details?.isGesture) endGestureSoon();
         }}
       >
         <Marker
@@ -522,7 +656,7 @@ export default function Map({ user: passedUser }) {
           ) : null
         )}
 
-        {needsRoute ? (
+        {userData?.status === "Delivering" && destinations.length > 0 && !!GOOGLE_MAPS_APIKEY ? (
           <>
             {destinations.map((d, i) => (
               <Marker
@@ -549,37 +683,21 @@ export default function Map({ user: passedUser }) {
                     edgePadding: { top: 80, right: 50, bottom: 120, left: 50 },
                     animated: true,
                   });
-                  setTimeout(async () => {
-                    try {
-                      const cam = await mapRef.current?.getCamera?.();
-                      if (cam?.zoom != null) cameraZoomRef.current = Math.max(12, cam.zoom);
-                    } catch {}
-                  }, 600);
                 }
                 setEtaMinutes(Math.round(result.duration));
                 setDistanceKm(result.distance);
                 setRouteReady(true);
               }}
-              onError={() => {
-                setRouteReady(true);
-              }}
+              onError={() => setRouteReady(true)}
             />
           </>
         ) : null}
       </MapView>
 
-      {preparing && (
+      {showBootOverlay && (
         <View style={styles.preparingOverlay} pointerEvents="none">
           <ActivityIndicator size="large" color="#00b2e1" />
-          <Text style={styles.preparingText}>
-            {!mapReady
-              ? "Preparing map..."
-              : !firstFreshFixRef.current
-              ? "Waiting for GPS fix..."
-              : needsRoute && !routeReady
-              ? "Building route..."
-              : "Loading..."}
-          </Text>
+          <Text style={styles.preparingText}>{preparingMsg}</Text>
         </View>
       )}
 
@@ -589,7 +707,10 @@ export default function Map({ user: passedUser }) {
           onPress={async () => {
             const next = !followPuck;
             setFollowPuck(next);
-            if (next) await quickCenterOnUser();
+            if (next) {
+              await saveCameraState();
+              await quickCenterOnUser();
+            }
           }}
           activeOpacity={0.85}
         >
@@ -618,8 +739,10 @@ export default function Map({ user: passedUser }) {
         <View style={styles.row}>
           <View style={styles.infoCard}>
             <Text style={styles.label}>Speed Limit</Text>
-            <Text style={[styles.infoValue, { color: "#29bf12" }]}>{effectiveLimit > 0 ? effectiveLimit : "N/A"}</Text>
-            {effectiveLimit > 0 && <Text style={styles.unit}>km/h</Text>}
+            <Text style={[styles.infoValue, { color: "#f21b3f" }]}>
+              {effectiveLimit > 0 ? effectiveLimit : DEFAULT_SPEED_LIMIT}
+            </Text>
+            <Text style={styles.unit}>km/h</Text>
           </View>
           <View style={styles.infoCard}>
             <Text style={styles.label}>Current Speed</Text>
@@ -656,15 +779,15 @@ export default function Map({ user: passedUser }) {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1
+    flex: 1,
   },
   map: {
-    flex: 1
+    flex: 1,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
-    alignItems: "center"
+    alignItems: "center",
   },
   etaPanel: {
     position: "absolute",
@@ -681,12 +804,12 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 20,
     fontWeight: "bold",
-    textAlign: "center"
+    textAlign: "center",
   },
   etaSubText: {
     color: "#e3f2fd",
     fontSize: 14,
-    textAlign: "center"
+    textAlign: "center",
   },
   puck: {
     backgroundColor: "#fff",
@@ -699,16 +822,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 3.5,
-  },
-  centerBtn: {
-    padding: 8,
-    borderRadius: 10,
-    backgroundColor: "#eef4ff",
-    elevation: 6,
-    shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
   },
   followBtn: {
     position: "absolute",
@@ -784,24 +897,24 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     justifyContent: "space-around",
-    marginBottom: 12
+    marginBottom: 12,
   },
   infoCard: {
     alignItems: "center",
-    flex: 1
+    flex: 1,
   },
   label: {
     fontSize: 14,
     color: "#777",
-    marginBottom: 4
+    marginBottom: 4,
   },
   infoValue: {
     fontSize: 24,
-    fontWeight: "bold"
+    fontWeight: "bold",
   },
   unit: {
     fontSize: 12,
-    color: "#555"
+    color: "#555",
   },
   warningBox: {
     flexDirection: "row",
@@ -815,11 +928,14 @@ const styles = StyleSheet.create({
     color: "#f21b3f",
     fontWeight: "600",
     fontSize: 14,
-    marginLeft: 8
+    marginLeft: 8,
   },
   preparingOverlay: {
     position: "absolute",
-    top: 0, left: 0, right: 0, bottom: 0,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "rgba(255,255,255,0.7)",
