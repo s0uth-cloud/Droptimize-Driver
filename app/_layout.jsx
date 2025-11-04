@@ -15,7 +15,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Navigation from "../components/Navigation";
-import OverspeedProvider from "../provider/OverspeedProvider";
+import { OverspeedProvider } from "../provider/OverspeedProvider";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 

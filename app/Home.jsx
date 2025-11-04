@@ -1,16 +1,18 @@
 import * as Location from "expo-location";
 import { router } from "expo-router";
 import {
+  arrayUnion,
   collection,
   doc,
   getDoc,
   getDocs,
   onSnapshot,
   query,
+  Timestamp,
   updateDoc,
   where,
 } from "firebase/firestore";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -24,6 +26,21 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import Dashboard from "../components/DriverDashboard";
 import { auth, db } from "../firebaseConfig";
 
+// Helper function to calculate distance between two coordinates in kilometers
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 6371; // Earth's radius in km
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * (Math.PI / 180)) *
+      Math.cos(lat2 * (Math.PI / 180)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
+
 export default function Home() {
   const [loading, setLoading] = useState(true);
   const [buttonLoading, setButtonLoading] = useState(false);
@@ -31,11 +48,18 @@ export default function Home() {
   const [deliveries, setDeliveries] = useState([]);
   const [nextDelivery, setNextDelivery] = useState(null);
 
-  // Live driving telemetry (no speed limit)
+  // Live driving telemetry
   const [speed, setSpeed] = useState(0);
   const [location, setLocation] = useState(null);
   const { width: screenWidth } = Dimensions.get("window");
   const user = auth.currentUser;
+
+  // Driving metrics tracking
+  const shiftStartTimeRef = useRef(null);
+  const lastLocationRef = useRef(null);
+  const totalDistanceRef = useRef(0);
+  const topSpeedRef = useRef(0);
+  const speedReadingsRef = useRef([]);
 
   // Initial load (user + parcels)
   useEffect(() => {
@@ -62,34 +86,68 @@ export default function Home() {
     init();
   }, [user]);
 
-  // Subscribe to live user doc for speed (and status)
+  // Subscribe to live user doc
   useEffect(() => {
     if (!user) return;
     const ref = doc(db, "users", user.uid);
-    const unsub = onSnapshot(
-      ref,
-      (snap) => {
-        if (!snap.exists()) return;
-        const d = snap.data();
-        setUserData(d);
+    const unsub = onSnapshot(ref, (snap) => {
+      if (!snap.exists()) return;
+      const d = snap.data();
+      setUserData(d);
     });
     return () => unsub();
   }, [user]);
 
+  // Location tracking with metrics
   useEffect(() => {
     let locationSub;
     const startTracking = async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") return;
+
       locationSub = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.Highest, distanceInterval: 1 },
         (pos) => {
           const kmh = pos.coords.speed ? Math.round(pos.coords.speed * 3.6) : 0;
           setSpeed(kmh);
-          setLocation({
+          
+          const newLocation = {
             latitude: pos.coords.latitude,
             longitude: pos.coords.longitude,
-          });
+          };
+          setLocation(newLocation);
+
+          // Track metrics during delivery
+          if (userData?.status === "Delivering") {
+            // Update top speed
+            if (kmh > topSpeedRef.current) {
+              topSpeedRef.current = kmh;
+            }
+
+            // Record speed for average calculation
+            if (kmh > 0) {
+              speedReadingsRef.current.push(kmh);
+            }
+
+            // Calculate distance traveled
+            if (lastLocationRef.current) {
+              const distanceKm = calculateDistance(
+                lastLocationRef.current.latitude,
+                lastLocationRef.current.longitude,
+                newLocation.latitude,
+                newLocation.longitude
+              );
+              
+              // Only count significant movements (more than 5 meters)
+              if (distanceKm > 0.005) {
+                totalDistanceRef.current += distanceKm;
+              }
+            }
+
+            lastLocationRef.current = newLocation;
+          }
+
+          // Update Firestore location
           if (user) {
             updateDoc(doc(db, "users", user.uid), {
               location: {
@@ -102,7 +160,11 @@ export default function Home() {
         }
       );
     };
-    if (userData?.status === "Delivering") startTracking();
+
+    if (userData?.status === "Delivering") {
+      startTracking();
+    }
+
     return () => {
       if (locationSub) locationSub.remove();
     };
@@ -150,22 +212,84 @@ export default function Home() {
     }
   };
 
+  const resetDrivingMetrics = () => {
+    shiftStartTimeRef.current = null;
+    lastLocationRef.current = null;
+    totalDistanceRef.current = 0;
+    topSpeedRef.current = 0;
+    speedReadingsRef.current = [];
+  };
+
+  const calculateAverageSpeed = () => {
+    if (speedReadingsRef.current.length === 0) return 0;
+    const sum = speedReadingsRef.current.reduce((acc, speed) => acc + speed, 0);
+    return Math.round(sum / speedReadingsRef.current.length);
+  };
+
   const handleStartShift = async () => {
+    resetDrivingMetrics();
     await updateStatus("Available");
     await fetchParcels({ ...userData, status: "Available" });
   };
 
   const handleStartDelivering = async () => {
+    // Initialize tracking metrics
+    shiftStartTimeRef.current = Date.now();
+    lastLocationRef.current = location;
+    totalDistanceRef.current = 0;
+    topSpeedRef.current = 0;
+    speedReadingsRef.current = [];
+
     await updateStatus("Delivering");
   };
 
   const handleEndShift = async () => {
-    await updateStatus("Offline");
-    setDeliveries([]);
-    setNextDelivery(null);
+    if (!user) return;
+
+    try {
+      setButtonLoading(true);
+
+      // Calculate shift metrics
+      const shiftEndTime = Date.now();
+      const shiftStartTime = shiftStartTimeRef.current || shiftEndTime;
+      const durationMinutes = Math.round((shiftEndTime - shiftStartTime) / 60000);
+      const avgSpeed = calculateAverageSpeed();
+      const distance = parseFloat(totalDistanceRef.current.toFixed(2));
+
+      // Create driving history entry
+      const drivingHistory = {
+        message: "Shift completed",
+        issuedAt: Timestamp.now(),
+        avgSpeed: avgSpeed,
+        topSpeed: topSpeedRef.current,
+        distance: distance,
+        time: durationMinutes,
+        driverLocation: location
+          ? {
+              latitude: location.latitude,
+              longitude: location.longitude,
+            }
+          : null,
+      };
+
+      // Save to database
+      await updateDoc(doc(db, "users", user.uid), {
+        status: "Offline",
+        violations: arrayUnion(drivingHistory),
+      });
+
+      // Reset local state
+      setDeliveries([]);
+      setNextDelivery(null);
+      resetDrivingMetrics();
+    } catch (err) {
+      console.error("Failed to end shift:", err);
+      alert("Failed to save shift data. Please try again.");
+    } finally {
+      setButtonLoading(false);
+    }
   };
 
-  // Cancel in Available state
   const handleCancelShift = async () => {
     await handleEndShift();
   };
@@ -220,7 +344,7 @@ export default function Home() {
                 </Text>
               ) : (
                 <>
-                <Text style={styles.waitText}>
+                  <Text style={styles.waitText}>
                     You have {deliveries.length} parcel
                     {deliveries.length > 1 ? "s" : ""} to deliver.
                   </Text>
@@ -229,12 +353,12 @@ export default function Home() {
                     onPress={handleStartDelivering}
                     disabled={buttonLoading}
                   >
-                      {buttonLoading ? (
-                        <ActivityIndicator color="#fff" />
-                      ) : (
-                        <Text style={styles.startShiftText}>Start Delivering</Text>
-                      )}
-                    </TouchableOpacity>
+                    {buttonLoading ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.startShiftText}>Start Delivering</Text>
+                    )}
+                  </TouchableOpacity>
                 </>
               )}
 
@@ -276,7 +400,26 @@ export default function Home() {
                 <Text style={styles.speedUnit}>km/h</Text>
               </View>
 
-              {/* Go to Map button when Delivering */}
+              {/* Driving Metrics Display */}
+              <View style={styles.metricsContainer}>
+                <View style={styles.metricItem}>
+                  <Text style={styles.metricLabel}>Distance</Text>
+                  <Text style={styles.metricValue}>
+                    {totalDistanceRef.current.toFixed(1)} km
+                  </Text>
+                </View>
+                <View style={styles.metricItem}>
+                  <Text style={styles.metricLabel}>Top Speed</Text>
+                  <Text style={styles.metricValue}>{topSpeedRef.current} km/h</Text>
+                </View>
+                <View style={styles.metricItem}>
+                  <Text style={styles.metricLabel}>Avg Speed</Text>
+                  <Text style={styles.metricValue}>
+                    {calculateAverageSpeed()} km/h
+                  </Text>
+                </View>
+              </View>
+
               <TouchableOpacity
                 style={[styles.mapButton, { width: screenWidth * 0.5 }]}
                 onPress={() => router.push("/Map")}
@@ -310,18 +453,18 @@ export default function Home() {
 }
 
 const styles = StyleSheet.create({
-  safe: { 
-    flex: 1, 
+  safe: {
+    flex: 1,
     backgroundColor: "#fff",
-    paddingVertical: 0
+    paddingVertical: 0,
   },
-  scrollContent: { 
-    paddingBottom: 20 
+  scrollContent: {
+    paddingBottom: 20,
   },
   loading: {
     flex: 1,
     justifyContent: "center",
-    alignItems: "center"
+    alignItems: "center",
   },
   topSection: {
     backgroundColor: "#00b2e1",
@@ -333,12 +476,12 @@ const styles = StyleSheet.create({
   greeting: {
     fontSize: 24,
     fontWeight: "700",
-    color: "#fff"
+    color: "#fff",
   },
   subheading: {
     fontSize: 16,
     marginTop: 6,
-    color: "#f0f0f0"
+    color: "#f0f0f0",
   },
   startShiftButton: {
     height: 48,
@@ -355,7 +498,7 @@ const styles = StyleSheet.create({
   startShiftText: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#fff"
+    color: "#fff",
   },
   shiftCard: {
     backgroundColor: "#fff",
@@ -378,26 +521,49 @@ const styles = StyleSheet.create({
   statusLabel: {
     fontSize: 16,
     marginBottom: 6,
-    color: "#333"
+    color: "#333",
   },
   waitText: {
     color: "#666",
     fontStyle: "italic",
-    marginTop: 4
+    marginTop: 4,
   },
   speedCircle: {
     borderWidth: 6,
     justifyContent: "center",
     alignItems: "center",
+    marginVertical: 10,
   },
   speedValue: {
     fontSize: 36,
     fontWeight: "bold",
-    color: "#29bf12"
+    color: "#29bf12",
   },
   speedUnit: {
     fontSize: 14,
-    color: "#555"
+    color: "#555",
+  },
+  metricsContainer: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    width: "100%",
+    marginTop: 16,
+    marginBottom: 8,
+    paddingHorizontal: 10,
+  },
+  metricItem: {
+    alignItems: "center",
+    flex: 1,
+  },
+  metricLabel: {
+    fontSize: 12,
+    color: "#777",
+    marginBottom: 4,
+  },
+  metricValue: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#333",
   },
   endShiftButton: {
     marginTop: 16,
@@ -414,7 +580,7 @@ const styles = StyleSheet.create({
   endShiftText: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#fff"
+    color: "#fff",
   },
   cancelButton: {
     marginTop: 10,
@@ -431,7 +597,7 @@ const styles = StyleSheet.create({
   cancelText: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#fff"
+    color: "#fff",
   },
   mapButton: {
     marginTop: 14,
@@ -448,6 +614,6 @@ const styles = StyleSheet.create({
   mapButtonText: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#fff"
+    color: "#fff",
   },
 });

@@ -2,17 +2,31 @@ import * as Location from "expo-location";
 import { usePathname } from "expo-router";
 import * as Speech from "expo-speech";
 import { onAuthStateChanged } from "firebase/auth";
-import { arrayUnion, doc, getDoc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
+import {
+  arrayUnion,
+  doc,
+  getDoc,
+  onSnapshot,
+  serverTimestamp,
+  Timestamp,
+  updateDoc,
+} from "firebase/firestore";
 import haversine from "haversine-distance";
-import { useEffect, useRef } from "react";
+import { createContext, useContext, useEffect, useRef } from "react";
 import { Alert } from "react-native";
 import { auth, db } from "../firebaseConfig";
+
+const OverspeedContext = createContext();
+
+export function useOverspeed() {
+  return useContext(OverspeedContext);
+}
 
 const DEFAULT_SPEED_LIMIT = 80;
 const DEFAULT_ZONE_RADIUS = 15;
 const VIOLATION_COOLDOWN_MS = 60000;
 
-export default function OverspeedProvider({ children }) {
+export function OverspeedProvider({ children }) {
   const pathname = usePathname();
 
   const locationSubRef = useRef(null);
@@ -31,6 +45,8 @@ export default function OverspeedProvider({ children }) {
   const alertsEnabledRef = useRef(true);
   const trackingAllowedRef = useRef(true);
 
+  const prevViolationsCountRef = useRef(0);
+
   const onLogin = pathname === "/Login";
   const onMap = pathname === "/Map";
 
@@ -42,24 +58,38 @@ export default function OverspeedProvider({ children }) {
 
   const stopLocationWatch = () => {
     if (locationSubRef.current) {
-      try { locationSubRef.current.remove(); } catch {}
+      try {
+        locationSubRef.current.remove();
+      } catch {}
       locationSubRef.current = null;
     }
   };
 
   const metersBetween = (a, b) =>
-    haversine({ lat: a.latitude, lon: a.longitude }, { lat: b.latitude, lon: b.longitude });
+    haversine(
+      { lat: a.latitude, lon: a.longitude },
+      { lat: b.latitude, lon: b.longitude }
+    );
 
   const calcSpeedKmh = (pos) => {
-    const gps = Number.isFinite(pos?.coords?.speed) ? pos.coords.speed * 3.6 : NaN;
+    const gps = Number.isFinite(pos?.coords?.speed)
+      ? pos.coords.speed * 3.6
+      : NaN;
     let derived = NaN;
     if (prevFixRef.current.coord && prevFixRef.current.ts) {
       const d = metersBetween(prevFixRef.current.coord, pos.coords);
-      const dt = Math.max(0.5, ((pos.timestamp || Date.now()) - prevFixRef.current.ts) / 1000);
+      const dt = Math.max(
+        0.5,
+        ((pos.timestamp || Date.now()) - prevFixRef.current.ts) / 1000
+      );
       derived = (d / dt) * 3.6;
     }
     prevFixRef.current = { coord: pos.coords, ts: pos.timestamp || Date.now() };
-    const kmh = Number.isFinite(gps) ? gps : Number.isFinite(derived) ? derived : 0;
+    const kmh = Number.isFinite(gps)
+      ? gps
+      : Number.isFinite(derived)
+      ? derived
+      : 0;
     return kmh < 2 ? 0 : kmh;
   };
 
@@ -69,7 +99,8 @@ export default function OverspeedProvider({ children }) {
       const lng = z?.location?.lng;
       if (typeof lat !== "number" || typeof lng !== "number") continue;
       const d = metersBetween(coord, { latitude: lat, longitude: lng });
-      const r = Number(z?.radius) > 0 ? Number(z.radius) : DEFAULT_ZONE_RADIUS;
+      const r =
+        Number(z?.radius) > 0 ? Number(z.radius) : DEFAULT_ZONE_RADIUS;
       if (d <= r) return z;
     }
     return null;
@@ -77,13 +108,15 @@ export default function OverspeedProvider({ children }) {
 
   const checkAndLogOverspeed = async (uid, coord, speedKmh) => {
     const zone = activeZoneFor(coord);
-    const limit = zone?.speedLimit > 0 ? Number(zone.speedLimit) : DEFAULT_SPEED_LIMIT;
+    const limit =
+      zone?.speedLimit > 0 ? Number(zone.speedLimit) : DEFAULT_SPEED_LIMIT;
     if (!(speedKmh > limit)) return;
 
     const now = Date.now();
     const zoneKey = zone?.id ?? "default";
     const sameZone = zoneKey === (lastZoneViolationIdRef.current ?? "default");
-    if (now - lastViolationTsRef.current < VIOLATION_COOLDOWN_MS && sameZone) return;
+    if (now - lastViolationTsRef.current < VIOLATION_COOLDOWN_MS && sameZone)
+      return;
 
     lastViolationTsRef.current = now;
     lastZoneViolationIdRef.current = zoneKey;
@@ -92,8 +125,11 @@ export default function OverspeedProvider({ children }) {
     const payload = {
       message: "Speeding violation",
       confirmed: false,
-      issuedAt: serverTimestamp(),
-      driverLocation: { latitude: coord.latitude, longitude: coord.longitude },
+      issuedAt: Timestamp.now(),
+      driverLocation: {
+        latitude: coord.latitude,
+        longitude: coord.longitude,
+      },
       topSpeed: Math.round(speedKmh),
       avgSpeed: Math.round(speedKmh),
       distance: 0,
@@ -102,11 +138,15 @@ export default function OverspeedProvider({ children }) {
       zoneLimit: zone?.speedLimit ?? null,
       defaultLimit: DEFAULT_SPEED_LIMIT,
     };
-    try { await updateDoc(userRef, { violations: arrayUnion(payload) }); } catch {}
+    try {
+      await updateDoc(userRef, { violations: arrayUnion(payload) });
+    } catch {}
 
     if (alertsEnabledRef.current) {
-      try { Speech.stop(); Speech.speak("Speeding violation", { language: "en-US", rate: 1.0 }); } catch {}
-      try { Alert.alert("Notice of Violation", "Speeding violation", [{ text: "OK" }], { cancelable: false }); } catch {}
+      try {
+        Speech.stop();
+        Speech.speak("Speeding violation", { language: "en-US", rate: 1.0 });
+      } catch {}
     }
   };
 
@@ -137,21 +177,37 @@ export default function OverspeedProvider({ children }) {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") return;
 
-      const initial = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      prevFixRef.current = { coord: initial.coords, ts: initial.timestamp || Date.now() };
+      const initial = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      prevFixRef.current = {
+        coord: initial.coords,
+        ts: initial.timestamp || Date.now(),
+      };
       const kmh0 = calcSpeedKmh(initial);
 
       await updateDoc(doc(db, "users", uid), {
-        location: { latitude: initial.coords.latitude, longitude: initial.coords.longitude, speedKmh: kmh0 },
+        location: {
+          latitude: initial.coords.latitude,
+          longitude: initial.coords.longitude,
+          speedKmh: kmh0,
+        },
         lastLocationAt: serverTimestamp(),
       }).catch(() => {});
 
       await checkAndLogOverspeed(uid, initial.coords, kmh0);
 
       locationSubRef.current = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.Balanced, timeInterval: 5000, distanceInterval: 10 },
+        {
+          accuracy: Location.Accuracy.Balanced,
+          timeInterval: 5000,
+          distanceInterval: 10,
+        },
         async (pos) => {
-          if (!trackingAllowedRef.current) { stopLocationWatch(); return; }
+          if (!trackingAllowedRef.current) {
+            stopLocationWatch();
+            return;
+          }
 
           const now = Date.now();
           if (now - lastWriteTsRef.current < 2000) return;
@@ -160,7 +216,11 @@ export default function OverspeedProvider({ children }) {
           const kmh = calcSpeedKmh(pos);
 
           await updateDoc(doc(db, "users", uid), {
-            location: { latitude: pos.coords.latitude, longitude: pos.coords.longitude, speedKmh: kmh },
+            location: {
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+              speedKmh: kmh,
+            },
             lastLocationAt: serverTimestamp(),
           }).catch(() => {});
 
@@ -173,7 +233,10 @@ export default function OverspeedProvider({ children }) {
   useEffect(() => {
     authUnsubRef.current = onAuthStateChanged(auth, async (user) => {
       stopLocationWatch();
-      if (userDocUnsubRef.current) { userDocUnsubRef.current(); userDocUnsubRef.current = null; }
+      if (userDocUnsubRef.current) {
+        userDocUnsubRef.current();
+        userDocUnsubRef.current = null;
+      }
       if (!user) return;
 
       const userRef = doc(db, "users", user.uid);
@@ -181,29 +244,68 @@ export default function OverspeedProvider({ children }) {
         if (!snap.exists()) return;
         const data = snap.data() || {};
 
-        if (typeof data.violations === "undefined" && !ensuredViolationsRef.current) {
+        if (
+          typeof data.violations === "undefined" &&
+          !ensuredViolationsRef.current
+        ) {
           ensuredViolationsRef.current = true;
           await updateDoc(userRef, { violations: [] }).catch(() => {});
+          prevViolationsCountRef.current = 0;
         }
 
-        if (Array.isArray(data.violations) && alertsEnabledRef.current) {
-          const hasUnconfirmed = data.violations.some((v) => !(v && v.confirmed === true));
-          if (hasUnconfirmed && !isAlertingViolationRef.current) {
-            isAlertingViolationRef.current = true;
-            try {
-              Speech.stop(); Speech.speak("You have a violation", { language: "en-US", rate: 1.0 });
-              Alert.alert("Notice of Violation", "Open your violations to review.", [{ text: "OK" }], { cancelable: false });
-            } finally {
-              isAlertingViolationRef.current = false;
+        const violationsArr = Array.isArray(data.violations)
+          ? data.violations
+          : [];
+
+        if (prevViolationsCountRef.current === 0 && violationsArr.length >= 0) {
+          prevViolationsCountRef.current = violationsArr.length;
+        }
+
+        if (alertsEnabledRef.current && !isAlertingViolationRef.current) {
+          const newCount = violationsArr.length;
+          if (newCount > prevViolationsCountRef.current) {
+            const last = violationsArr[newCount - 1];
+            if (last && last.message === "Shift completed") {
+              isAlertingViolationRef.current = true;
+              try {
+                if (last.message === "Speeding violation") {
+                  // Violation alert
+                  Speech.stop();
+                  Speech.speak("You have a violation", {
+                    language: "en-US",
+                    rate: 1.0,
+                  });
+                  Alert.alert(
+                    "Notice of Violation",
+                    "Open your violations to review.",
+                    [{ text: "OK" }],
+                    { cancelable: false }
+                  );
+                } else if (last.message === "Shift completed") {
+                  Alert.alert(
+                    "Shift Ended",
+                    "Your shift has ended. Check your driving history on Driving Stats.",
+                    [{ text: "OK" }],
+                    { cancelable: false }
+                  );
+                }
+              } finally {
+                isAlertingViolationRef.current = false;
+              }
             }
           }
+          prevViolationsCountRef.current = newCount;
+        } else {
+          prevViolationsCountRef.current = violationsArr.length;
         }
 
-        if (data?.branchId) slowdownsRef.current = await loadBranchSlowdowns(data.branchId);
+        if (data?.branchId)
+          slowdownsRef.current = await loadBranchSlowdowns(data.branchId);
         else slowdownsRef.current = [];
 
         const status = String(data.status || "").toLowerCase();
-        if (status === "delivering" && trackingAllowedRef.current) startLocationWatch(user.uid);
+        if (status === "delivering" && trackingAllowedRef.current)
+          startLocationWatch(user.uid);
         else stopLocationWatch();
       });
     });
@@ -212,9 +314,20 @@ export default function OverspeedProvider({ children }) {
       if (authUnsubRef.current) authUnsubRef.current();
       if (userDocUnsubRef.current) userDocUnsubRef.current();
       stopLocationWatch();
-      try { Speech.stop(); } catch {}
+      try {
+        Speech.stop();
+      } catch {}
     };
   }, []);
 
-  return children;
+  return (
+    <OverspeedContext.Provider
+      value={{
+        startLocationWatch,
+        stopLocationWatch,
+      }}
+    >
+      {children}
+    </OverspeedContext.Provider>
+  );
 }
