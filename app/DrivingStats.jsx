@@ -32,7 +32,13 @@ export default function DrivingStats() {
       (snapshot) => {
         const data = snapshot.data();
         if (data?.violations && Array.isArray(data.violations)) {
-          setDrivingData(data.violations);
+          // Sort records by recency (newest first)
+          const sortedData = [...data.violations].sort((a, b) => {
+            const aTime = a?.issuedAt?.seconds || 0;
+            const bTime = b?.issuedAt?.seconds || 0;
+            return bTime - aTime;
+          });
+          setDrivingData(sortedData);
         } else {
           setDrivingData([]);
         }
@@ -65,7 +71,6 @@ export default function DrivingStats() {
 
   return (
     <View style={styles.container}>
-
       {/* Tabs */}
       <View style={styles.tabContainer}>
         <TouchableOpacity
