@@ -413,6 +413,7 @@ export function OverspeedProvider({ children }) {
     const durationMinutes = Math.round((shiftEndTime - shiftStartTime) / 60000);
     const avgSpeed = calculateAverageSpeed();
     const distance = parseFloat(totalDistanceRef.current.toFixed(2));
+    const topSpd = topSpeedRef.current;
 
     console.log(
       "[OverspeedProvider] Shift metrics - Duration:",
@@ -422,15 +423,15 @@ export function OverspeedProvider({ children }) {
       "km/h, Distance:",
       distance,
       "km, Top speed:",
-      topSpeedRef.current,
+      topSpd,
       "km/h"
     );
 
     return {
-      durationMinutes,
-      avgSpeed,
-      topSpeed: topSpeedRef.current,
-      distance,
+      durationMinutes: durationMinutes || 0,
+      avgSpeed: avgSpeed || 0,
+      topSpeed: topSpd || 0,
+      distance: distance || 0,
     };
   };
 
@@ -516,20 +517,37 @@ export function OverspeedProvider({ children }) {
             setSpeed(kmh);
             setLocation(newLocation);
 
-            if (kmh > topSpeedRef.current) topSpeedRef.current = kmh;
-            if (kmh > 0) speedReadingsRef.current.push(kmh);
+            // 🔹 Track metrics ONLY if shift has started
+            if (shiftStartTimeRef.current) {
+              // Update top speed
+              if (kmh > topSpeedRef.current) {
+                topSpeedRef.current = kmh;
+                console.log("[Metrics] New top speed:", kmh, "km/h");
+              }
 
-            if (lastLocationRef.current && shiftStartTimeRef.current) {
-              const distanceKm = calculateDistance(
-                lastLocationRef.current.latitude,
-                lastLocationRef.current.longitude,
-                newLocation.latitude,
-                newLocation.longitude
-              );
-              if (distanceKm > 0.005) totalDistanceRef.current += distanceKm;
+              // Record speed for average calculation (only if moving)
+              if (kmh > 0) {
+                speedReadingsRef.current.push(kmh);
+              }
+
+              // Calculate distance traveled
+              if (lastLocationRef.current) {
+                const distanceKm = calculateDistance(
+                  lastLocationRef.current.latitude,
+                  lastLocationRef.current.longitude,
+                  newLocation.latitude,
+                  newLocation.longitude
+                );
+                
+                // Only add if distance is reasonable (not GPS noise)
+                if (distanceKm > 0.005 && distanceKm < 1) { // between 5m and 1km
+                  totalDistanceRef.current += distanceKm;
+                  console.log("[Metrics] Distance added:", distanceKm.toFixed(3), "km, Total:", totalDistanceRef.current.toFixed(2), "km");
+                }
+              }
+
+              lastLocationRef.current = newLocation;
             }
-
-            lastLocationRef.current = newLocation;
 
             await updateDoc(doc(db, "users", uid), {
               location: {
@@ -682,6 +700,9 @@ export function OverspeedProvider({ children }) {
         activeSlowdown,
         showSlowdownWarning,
         slowdowns: slowdownsRef.current,
+        // 🔹 ADD THESE - expose the refs so they can be read in real-time
+        shiftStartTime: shiftStartTimeRef.current,
+        speedReadings: speedReadingsRef.current,
       }}
     >
       {children}

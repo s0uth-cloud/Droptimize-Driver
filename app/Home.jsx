@@ -14,6 +14,7 @@ import {
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   ScrollView,
   StyleSheet,
@@ -132,11 +133,19 @@ export default function Home() {
     await fetchParcels({ ...userData, status: "Available" });
   };
 
-  const handleStartDelivering = async () => {
-    // Initialize tracking metrics using the provider
-    initializeShiftMetrics(location);
-    await updateStatus("Delivering");
-  };
+const handleStartDelivering = async () => {
+  // Make sure we have a location before initializing
+  if (!location) {
+    alert("Waiting for GPS location. Please try again in a moment.");
+    return;
+  }
+  
+  // Initialize tracking metrics using the provider
+  initializeShiftMetrics(location);
+  console.log("[Home] Shift metrics initialized with location:", location);
+  
+  await updateStatus("Delivering");
+};
 
   const handleEndShift = async () => {
     if (!user) return;
@@ -144,19 +153,39 @@ export default function Home() {
     try {
       setButtonLoading(true);
 
-      // 🔹 Make sure provider metrics are finalized
-      const { durationMinutes, avgSpeed, topSpeed: topSpd, distance } = getShiftMetrics();
+      // Get final metrics
+      const metrics = getShiftMetrics();
+      const { durationMinutes, avgSpeed, topSpeed: topSpd, distance } = metrics;
 
-      // Validate and log metrics to console for debugging
-      console.log("[Shift Metrics]", { durationMinutes, avgSpeed, topSpd, distance });
+      // Log for debugging
+      console.log("[Home] Final shift metrics:", metrics);
+
+      // Validate that we actually have data
+      if (durationMinutes === 0 && distance === 0 && topSpd === 0) {
+        const proceed = await new Promise((resolve) => {
+          Alert.alert(
+            "No Data Recorded",
+            "No driving data was recorded during this shift. This might happen if GPS tracking was unavailable. End shift anyway?",
+            [
+              { text: "Cancel", onPress: () => resolve(false), style: "cancel" },
+              { text: "End Anyway", onPress: () => resolve(true) }
+            ]
+          );
+        });
+        
+        if (!proceed) {
+          setButtonLoading(false);
+          return;
+        }
+      }
 
       // Create driving history entry
       const drivingHistory = {
         message: "Shift completed",
         issuedAt: Timestamp.now(),
-        avgSpeed: avgSpeed || 0,
-        topSpeed: topSpd || 0,
-        distance: distance || 0,
+        avgSpeed: Math.round(avgSpeed) || 0,
+        topSpeed: Math.round(topSpd) || 0,
+        distance: parseFloat(distance.toFixed(2)) || 0,
         time: durationMinutes || 0,
         driverLocation: location
           ? {
@@ -165,6 +194,8 @@ export default function Home() {
             }
           : null,
       };
+
+      console.log("[Home] Saving driving history:", drivingHistory);
 
       // Save to Firestore
       await updateDoc(doc(db, "users", user.uid), {
@@ -176,6 +207,12 @@ export default function Home() {
       resetDrivingMetrics();
       setDeliveries([]);
       setNextDelivery(null);
+
+      Alert.alert(
+        "Shift Ended",
+        `Shift completed!\n\nDuration: ${durationMinutes} min\nDistance: ${distance.toFixed(1)} km\nTop Speed: ${topSpd} km/h`,
+        [{ text: "OK" }]
+      );
 
     } catch (err) {
       console.error("Failed to end shift:", err);
