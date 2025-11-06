@@ -75,6 +75,7 @@ export default function Map({ user: passedUser }) {
   const [slowdownsLoaded, setSlowdownsLoaded] = useState(false);
   const [routeReady, setRouteReady] = useState(true);
 
+
   // heading state computed inside map (provider doesn't send heading)
   const [headingDeg, setHeadingDeg] = useState(0);
 
@@ -87,6 +88,13 @@ export default function Map({ user: passedUser }) {
   const userZoomRef = useRef(17);
   const userPitchRef = useRef(45);
   const PAUSE_AFTER_GESTURE_MS = 1200;
+  
+  const getETAColor = () => {
+    if (etaMinutes == null) return "#0064b5";
+    if (etaMinutes < 15) return "#29bf12";
+    if (etaMinutes < 30) return "#ff9914";
+    return "#f21b3f";
+  };
 
   // Auth listener
   useEffect(() => {
@@ -326,6 +334,13 @@ export default function Map({ user: passedUser }) {
         </View>
       )}
 
+      {etaMinutes != null && distanceKm != null && (
+        <View style={[styles.etaPanel, { backgroundColor: getETAColor() }]}>
+          <Text style={styles.etaText}>{etaMinutes} min • {distanceKm.toFixed(1)} km</Text>
+          <Text style={styles.etaSubText}>Optimized Route</Text>
+        </View>
+      )}
+
       <MapView
         ref={mapRef}
         provider={PROVIDER_GOOGLE}
@@ -513,6 +528,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: "#2c3e50"
+  },
+  etaPanel: {
+    position: "absolute",
+    top: 40,
+    alignSelf: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    zIndex: 10,
+    elevation: 10,
+    backgroundColor: "#0064b5",
+  },
+  etaText: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "bold",
+    textAlign: "center"
+  },
+  etaSubText: {
+    color: "#e3f2fd",
+    fontSize: 14,
+    textAlign: "center"
   },
   puck: {
     backgroundColor: "#fff",
