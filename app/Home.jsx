@@ -1,4 +1,3 @@
-import * as Location from "expo-location";
 import { router } from "expo-router";
 import {
   arrayUnion,
@@ -12,7 +11,7 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -25,21 +24,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import Dashboard from "../components/DriverDashboard";
 import { auth, db } from "../firebaseConfig";
-
-// Helper function to calculate distance between two coordinates in kilometers
-const calculateDistance = (lat1, lon1, lat2, lon2) => {
-  const R = 6371; // Earth's radius in km
-  const dLat = (lat2 - lat1) * (Math.PI / 180);
-  const dLon = (lon2 - lon1) * (Math.PI / 180);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * (Math.PI / 180)) *
-      Math.cos(lat2 * (Math.PI / 180)) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-};
+import { useOverspeed } from "../provider/OverspeedProvider";
 
 export default function Home() {
   const [loading, setLoading] = useState(true);
@@ -48,18 +33,19 @@ export default function Home() {
   const [deliveries, setDeliveries] = useState([]);
   const [nextDelivery, setNextDelivery] = useState(null);
 
-  // Live driving telemetry
-  const [speed, setSpeed] = useState(0);
-  const [location, setLocation] = useState(null);
   const { width: screenWidth } = Dimensions.get("window");
   const user = auth.currentUser;
 
-  // Driving metrics tracking
-  const shiftStartTimeRef = useRef(null);
-  const lastLocationRef = useRef(null);
-  const totalDistanceRef = useRef(0);
-  const topSpeedRef = useRef(0);
-  const speedReadingsRef = useRef([]);
+  // Use the shared speed tracking from OverspeedProvider
+  const {
+    speed,
+    location,
+    resetDrivingMetrics,
+    initializeShiftMetrics,
+    getShiftMetrics,
+    topSpeed,
+    totalDistance,
+  } = useOverspeed();
 
   // Initial load (user + parcels)
   useEffect(() => {
@@ -97,78 +83,6 @@ export default function Home() {
     });
     return () => unsub();
   }, [user]);
-
-  // Location tracking with metrics
-  useEffect(() => {
-    let locationSub;
-    const startTracking = async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") return;
-
-      locationSub = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.Highest, distanceInterval: 1 },
-        (pos) => {
-          const kmh = pos.coords.speed ? Math.round(pos.coords.speed * 3.6) : 0;
-          setSpeed(kmh);
-          
-          const newLocation = {
-            latitude: pos.coords.latitude,
-            longitude: pos.coords.longitude,
-          };
-          setLocation(newLocation);
-
-          // Track metrics during delivery
-          if (userData?.status === "Delivering") {
-            // Update top speed
-            if (kmh > topSpeedRef.current) {
-              topSpeedRef.current = kmh;
-            }
-
-            // Record speed for average calculation
-            if (kmh > 0) {
-              speedReadingsRef.current.push(kmh);
-            }
-
-            // Calculate distance traveled
-            if (lastLocationRef.current) {
-              const distanceKm = calculateDistance(
-                lastLocationRef.current.latitude,
-                lastLocationRef.current.longitude,
-                newLocation.latitude,
-                newLocation.longitude
-              );
-              
-              // Only count significant movements (more than 5 meters)
-              if (distanceKm > 0.005) {
-                totalDistanceRef.current += distanceKm;
-              }
-            }
-
-            lastLocationRef.current = newLocation;
-          }
-
-          // Update Firestore location
-          if (user) {
-            updateDoc(doc(db, "users", user.uid), {
-              location: {
-                latitude: pos.coords.latitude,
-                longitude: pos.coords.longitude,
-                speedKmh: kmh,
-              },
-            });
-          }
-        }
-      );
-    };
-
-    if (userData?.status === "Delivering") {
-      startTracking();
-    }
-
-    return () => {
-      if (locationSub) locationSub.remove();
-    };
-  }, [userData?.status]);
 
   const fetchParcels = async (data) => {
     if (!user) return;
@@ -212,20 +126,6 @@ export default function Home() {
     }
   };
 
-  const resetDrivingMetrics = () => {
-    shiftStartTimeRef.current = null;
-    lastLocationRef.current = null;
-    totalDistanceRef.current = 0;
-    topSpeedRef.current = 0;
-    speedReadingsRef.current = [];
-  };
-
-  const calculateAverageSpeed = () => {
-    if (speedReadingsRef.current.length === 0) return 0;
-    const sum = speedReadingsRef.current.reduce((acc, speed) => acc + speed, 0);
-    return Math.round(sum / speedReadingsRef.current.length);
-  };
-
   const handleStartShift = async () => {
     resetDrivingMetrics();
     await updateStatus("Available");
@@ -233,13 +133,8 @@ export default function Home() {
   };
 
   const handleStartDelivering = async () => {
-    // Initialize tracking metrics
-    shiftStartTimeRef.current = Date.now();
-    lastLocationRef.current = location;
-    totalDistanceRef.current = 0;
-    topSpeedRef.current = 0;
-    speedReadingsRef.current = [];
-
+    // Initialize tracking metrics using the provider
+    initializeShiftMetrics(location);
     await updateStatus("Delivering");
   };
 
@@ -249,19 +144,15 @@ export default function Home() {
     try {
       setButtonLoading(true);
 
-      // Calculate shift metrics
-      const shiftEndTime = Date.now();
-      const shiftStartTime = shiftStartTimeRef.current || shiftEndTime;
-      const durationMinutes = Math.round((shiftEndTime - shiftStartTime) / 60000);
-      const avgSpeed = calculateAverageSpeed();
-      const distance = parseFloat(totalDistanceRef.current.toFixed(2));
+      // Get shift metrics from the provider
+      const { durationMinutes, avgSpeed, topSpeed: topSpd, distance } = getShiftMetrics();
 
       // Create driving history entry
       const drivingHistory = {
         message: "Shift completed",
         issuedAt: Timestamp.now(),
         avgSpeed: avgSpeed,
-        topSpeed: topSpeedRef.current,
+        topSpeed: topSpd,
         distance: distance,
         time: durationMinutes,
         driverLocation: location
@@ -405,17 +296,17 @@ export default function Home() {
                 <View style={styles.metricItem}>
                   <Text style={styles.metricLabel}>Distance</Text>
                   <Text style={styles.metricValue}>
-                    {totalDistanceRef.current.toFixed(1)} km
+                    {totalDistance.toFixed(1)} km
                   </Text>
                 </View>
                 <View style={styles.metricItem}>
                   <Text style={styles.metricLabel}>Top Speed</Text>
-                  <Text style={styles.metricValue}>{topSpeedRef.current} km/h</Text>
+                  <Text style={styles.metricValue}>{topSpeed} km/h</Text>
                 </View>
                 <View style={styles.metricItem}>
                   <Text style={styles.metricLabel}>Avg Speed</Text>
                   <Text style={styles.metricValue}>
-                    {calculateAverageSpeed()} km/h
+                    {getShiftMetrics().avgSpeed} km/h
                   </Text>
                 </View>
               </View>
