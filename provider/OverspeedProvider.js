@@ -29,6 +29,7 @@ export function useOverspeed() {
 const DEFAULT_SPEED_LIMIT = 60;
 const DEFAULT_ZONE_RADIUS = 15;
 const VIOLATION_COOLDOWN_MS = 60000;
+const correctionFactor = 1.12;
 
 export function OverspeedProvider({ children }) {
   console.log("[OverspeedProvider] Initializing");
@@ -159,7 +160,7 @@ export function OverspeedProvider({ children }) {
     }
     prevFixRef.current = { coord: pos.coords, ts: pos.timestamp || Date.now() };
     const kmh = Number.isFinite(gps)
-      ? gps
+      ? Math.round(gps * correctionFactor)
       : Number.isFinite(derived)
       ? derived
       : 0;
