@@ -146,25 +146,58 @@ export function OverspeedProvider({ children }) {
     );
 
   const calcSpeedKmh = (pos) => {
-    const gps = Number.isFinite(pos?.coords?.speed)
+    // Try to get GPS speed first
+    const gps = Number.isFinite(pos?.coords?.speed) && pos.coords.speed > 0
       ? pos.coords.speed * 3.6
       : NaN;
+
+    console.log("[Speed] GPS speed:", gps, "from raw:", pos?.coords?.speed);
+
     let derived = NaN;
-    if (prevFixRef.current.coord && prevFixRef.current.ts) {
-      const d = metersBetween(prevFixRef.current.coord, pos.coords);
-      const dt = Math.max(
-        0.5,
-        ((pos.timestamp || Date.now()) - prevFixRef.current.ts) / 1000
-      );
-      derived = (d / dt) * 3.6;
+    const prev = prevFixRef.current;
+    
+    // Calculate derived speed from position change
+    if (prev.coord && prev.ts && pos?.coords) {
+      try {
+        const currentCoord = {
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude
+        };
+        
+        const d = metersBetween(prev.coord, currentCoord);
+        const dt = Math.max(1, ((pos.timestamp || Date.now()) - prev.ts) / 1000);
+        
+        if (d > 0 && dt > 0) {
+          derived = (d / dt) * 3.6; // Convert m/s to km/h
+          console.log("[Speed] Derived speed:", derived.toFixed(2), "from distance:", d.toFixed(2), "m in", dt.toFixed(2), "s");
+        }
+      } catch (e) {
+        console.error("[Speed] Derived calculation error:", e);
+      }
     }
-    prevFixRef.current = { coord: pos.coords, ts: pos.timestamp || Date.now() };
-    const kmh = Number.isFinite(gps)
-      ? Math.round(gps * correctionFactor)
-      : Number.isFinite(derived)
-      ? derived
-      : 0;
-    return kmh < 2 ? 0 : kmh;
+
+    // Update previous fix with properly structured coordinate
+    prevFixRef.current = {
+      coord: {
+        latitude: pos.coords.latitude,
+        longitude: pos.coords.longitude
+      },
+      ts: pos.timestamp || Date.now()
+    };
+
+    // Prefer GPS speed if available and reasonable, otherwise use derived
+    let kmh = 0;
+    if (Number.isFinite(gps) && gps < 200) { // GPS speed sanity check
+      kmh = Math.round(gps * correctionFactor);
+    } else if (Number.isFinite(derived) && derived < 200) {
+      kmh = Math.round(derived);
+    }
+
+    // Filter out very low speeds (noise)
+    const finalSpeed = kmh < 2 ? 0 : kmh;
+    console.log("[Speed] Final speed:", finalSpeed, "km/h");
+    
+    return finalSpeed;
   };
 
   const activeZoneFor = (coord) => {
@@ -429,7 +462,10 @@ export function OverspeedProvider({ children }) {
       if (!initial?.coords) return;
 
       prevFixRef.current = {
-        coord: initial.coords,
+        coord: {
+          latitude: initial.coords.latitude,
+          longitude: initial.coords.longitude
+        },
         ts: initial.timestamp || Date.now(),
       };
       const kmh0 = calcSpeedKmh(initial);
