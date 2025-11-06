@@ -38,6 +38,10 @@ export function OverspeedProvider({ children }) {
   const [speed, setSpeed] = useState(0);
   const [location, setLocation] = useState(null);
 
+  // Exposed slowdown UI state
+  const [activeSlowdown, setActiveSlowdown] = useState(null);
+  const [showSlowdownWarning, setShowSlowdownWarning] = useState(false);
+
   const locationSubRef = useRef(null);
   const ensuredViolationsRef = useRef(false);
   const isAlertingViolationRef = useRef(false);
@@ -55,6 +59,8 @@ export function OverspeedProvider({ children }) {
   const trackingAllowedRef = useRef(true);
 
   const prevViolationsCountRef = useRef(0);
+
+  const shiftAlertShownRef = useRef(false);
 
   // Driving metrics tracking
   const shiftStartTimeRef = useRef(null);
@@ -230,10 +236,17 @@ export function OverspeedProvider({ children }) {
     }
   };
 
-  // 🟩 New: handle slowdown enter/exit announcements
+  // Handle slowdown enter/exit announcements (updates UI state)
   const handleSlowdownTransition = async (coord) => {
     try {
-      if (!alertsEnabledRef.current) return;
+      if (!alertsEnabledRef.current) {
+        // still update UI active zone detection even if alerts disabled
+        const zone = activeZoneFor(coord);
+        currentSlowdownRef.current = zone?.id ?? null;
+        setActiveSlowdown(zone ?? null);
+        setShowSlowdownWarning(Boolean(zone));
+        return;
+      }
 
       const zone = activeZoneFor(coord);
       const newZoneId = zone?.id ?? null;
@@ -243,10 +256,12 @@ export function OverspeedProvider({ children }) {
       if (newZoneId && newZoneId !== prevZoneId) {
         // Set current zone immediately to avoid duplicates
         currentSlowdownRef.current = newZoneId;
+        setActiveSlowdown(zone ?? null);
+        setShowSlowdownWarning(true);
 
         if (isAlertingSlowdownRef.current) {
-          // currently speaking slowdown; skip this one
-          console.log("[Slowdown] Entered zone but TTS busy, skipping:", zone?.category);
+          // currently speaking slowdown; skip TTS (UI still shows)
+          console.log("[Slowdown] Entered zone but TTS busy, skipping speak:", zone?.category);
         } else {
           isAlertingSlowdownRef.current = true;
           const cat = zone?.category ?? "hazard";
@@ -263,9 +278,10 @@ export function OverspeedProvider({ children }) {
 
       // Exiting a zone
       if (!newZoneId && prevZoneId) {
-        // Remember previous zone category if available
         const prevZone = (slowdownsRef.current || []).find((z) => z.id === prevZoneId);
         currentSlowdownRef.current = null;
+        setActiveSlowdown(null);
+        setShowSlowdownWarning(false);
 
         if (isAlertingSlowdownRef.current) {
           console.log("[Slowdown] Left zone but TTS busy, skipping exit TTS:", prevZone?.category);
@@ -286,6 +302,8 @@ export function OverspeedProvider({ children }) {
       console.error("[Slowdown] handle error:", err);
       // Ensure we don't get stuck in a busy state
       isAlertingSlowdownRef.current = false;
+      setShowSlowdownWarning(false);
+      setActiveSlowdown(null);
     }
   };
 
@@ -485,7 +503,7 @@ export function OverspeedProvider({ children }) {
               lastLocationAt: serverTimestamp(),
             });
 
-            // New: check for slowdown enter/exit on every location update (non-blocking)
+            // Check for slowdown enter/exit on every location update (non-blocking)
             try {
               handleSlowdownTransition(pos.coords).catch((e) =>
                 console.error("[OverspeedProvider] Slowdown handler error:", e)
@@ -512,6 +530,8 @@ export function OverspeedProvider({ children }) {
         stopLocationWatch();
         if (userDocUnsubRef.current) userDocUnsubRef.current();
         if (!user) return;
+
+        shiftAlertShownRef.current = false;
 
         const userRef = doc(db, "users", user.uid);
         userDocUnsubRef.current = onSnapshot(
@@ -552,13 +572,20 @@ export function OverspeedProvider({ children }) {
                         { cancelable: false }
                       );
                     } else if (last.message === "Shift completed") {
-                      Alert.alert(
-                        "Shift Ended",
-                        "Your shift has ended. Check your driving history on Driving Stats.",
-                        [{ text: "OK" }],
-                        { cancelable: false }
-                      );
+                      // 🟢 Prevent duplicate "Shift Ended" alerts within same session
+                      if (!shiftAlertShownRef.current) {
+                        shiftAlertShownRef.current = true;
+                        Alert.alert(
+                          "Shift Ended",
+                          "Your shift has ended. Check your driving history on Driving Stats.",
+                          [{ text: "OK" }],
+                          { cancelable: false }
+                        );
+                      } else {
+                        console.log("[OverspeedProvider] Shift End alert already shown — skipping");
+                      }
                     }
+
                     setTimeout(() => {
                       isAlertingViolationRef.current = false;
                     }, 3000);
@@ -615,6 +642,9 @@ export function OverspeedProvider({ children }) {
         calculateAverageSpeed,
         topSpeed: topSpeedRef.current,
         totalDistance: totalDistanceRef.current,
+        activeSlowdown,
+        showSlowdownWarning,
+        slowdowns: slowdownsRef.current,
       }}
     >
       {children}

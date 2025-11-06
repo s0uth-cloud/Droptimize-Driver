@@ -144,17 +144,20 @@ export default function Home() {
     try {
       setButtonLoading(true);
 
-      // Get shift metrics from the provider
+      // 🔹 Make sure provider metrics are finalized
       const { durationMinutes, avgSpeed, topSpeed: topSpd, distance } = getShiftMetrics();
+
+      // Validate and log metrics to console for debugging
+      console.log("[Shift Metrics]", { durationMinutes, avgSpeed, topSpd, distance });
 
       // Create driving history entry
       const drivingHistory = {
         message: "Shift completed",
         issuedAt: Timestamp.now(),
-        avgSpeed: avgSpeed,
-        topSpeed: topSpd,
-        distance: distance,
-        time: durationMinutes,
+        avgSpeed: avgSpeed || 0,
+        topSpeed: topSpd || 0,
+        distance: distance || 0,
+        time: durationMinutes || 0,
         driverLocation: location
           ? {
               latitude: location.latitude,
@@ -163,16 +166,17 @@ export default function Home() {
           : null,
       };
 
-      // Save to database
+      // Save to Firestore
       await updateDoc(doc(db, "users", user.uid), {
         status: "Offline",
         violations: arrayUnion(drivingHistory),
       });
 
-      // Reset local state
+      // Reset local metrics after successful save
+      resetDrivingMetrics();
       setDeliveries([]);
       setNextDelivery(null);
-      resetDrivingMetrics();
+
     } catch (err) {
       console.error("Failed to end shift:", err);
       alert("Failed to save shift data. Please try again.");
@@ -182,7 +186,20 @@ export default function Home() {
   };
 
   const handleCancelShift = async () => {
-    await handleEndShift();
+    if (!user) return;
+    try {
+      setButtonLoading(true);
+      await updateDoc(doc(db, "users", user.uid), {
+        status: "Offline",
+      });
+      setDeliveries([]);
+      setNextDelivery(null);
+      resetDrivingMetrics();
+    } catch (err) {
+      console.error("Failed to cancel shift:", err);
+    } finally {
+      setButtonLoading(false);
+    }
   };
 
   if (loading)
