@@ -43,6 +43,10 @@ export function OverspeedProvider({ children }) {
   const [activeSlowdown, setActiveSlowdown] = useState(null);
   const [showSlowdownWarning, setShowSlowdownWarning] = useState(false);
 
+  // ✅ Use state instead of refs for metrics that need to trigger re-renders
+  const [topSpeed, setTopSpeed] = useState(0);
+  const [totalDistance, setTotalDistance] = useState(0);
+
   const locationSubRef = useRef(null);
   const ensuredViolationsRef = useRef(false);
   const isAlertingViolationRef = useRef(false);
@@ -60,24 +64,24 @@ export function OverspeedProvider({ children }) {
   const trackingAllowedRef = useRef(true);
 
   const prevViolationsCountRef = useRef(0);
-
   const shiftAlertShownRef = useRef(false);
 
   // Driving metrics tracking
   const shiftStartTimeRef = useRef(null);
   const lastLocationRef = useRef(null);
-  const totalDistanceRef = useRef(0);
-  const topSpeedRef = useRef(0);
   const speedReadingsRef = useRef([]);
 
   // Slowdown TTS control
-  const currentSlowdownRef = useRef(null); // stores id of zone currently inside (or null)
+  const currentSlowdownRef = useRef(null);
   const isAlertingSlowdownRef = useRef(false);
 
-  const onLogin = pathname === "/Login";
-  const onMap = pathname === "/Map";
+  // ✅ Store current user status
+  const userStatusRef = useRef("Offline");
+  const currentUserIdRef = useRef(null);
 
-  // 🟩 Initialize and prewarm TTS
+  const onLogin = pathname === "/Login";
+
+  // Initialize and prewarm TTS
   useEffect(() => {
     console.log("[TTS] Initializing speech engine...");
     Speech.stop();
@@ -88,14 +92,14 @@ export function OverspeedProvider({ children }) {
       .catch((err) => console.warn("[TTS] Voice load error:", err));
   }, []);
 
-  // 🟩 Safe TTS function
+  // Safe TTS function
   async function safeSpeak(message, options = {}) {
     try {
       await Speech.stop();
-      await new Promise((res) => setTimeout(res, 250)); // short pause
+      await new Promise((res) => setTimeout(res, 250));
       const voices = await Speech.getAvailableVoicesAsync().catch(() => []);
       if (!voices.length) {
-        console.warn("[TTS] No voices available — skipping speak");
+        console.warn("[TTS] No voices available – skipping speak");
         return;
       }
       Speech.speak(message, {
@@ -111,21 +115,30 @@ export function OverspeedProvider({ children }) {
     }
   }
 
+  // ✅ Handle pathname changes
   useEffect(() => {
     console.log("[OverspeedProvider] Pathname changed:", pathname);
     alertsEnabledRef.current = !onLogin;
-    trackingAllowedRef.current = !(onLogin || onMap);
+    trackingAllowedRef.current = !onLogin;
     console.log(
       "[OverspeedProvider] Alerts enabled:",
       alertsEnabledRef.current,
       "Tracking allowed:",
       trackingAllowedRef.current
     );
-    if (!trackingAllowedRef.current) {
+    
+    // If tracking is not allowed and we have location watch, stop it
+    if (!trackingAllowedRef.current && locationSubRef.current) {
       console.log("[OverspeedProvider] Stopping location watch due to pathname");
       stopLocationWatch();
     }
-  }, [onLogin, onMap]);
+    
+    // If tracking is allowed and we have a user, start tracking
+    if (trackingAllowedRef.current && currentUserIdRef.current && !locationSubRef.current) {
+      console.log("[OverspeedProvider] Restarting location watch after pathname change");
+      startLocationWatch(currentUserIdRef.current);
+    }
+  }, [onLogin, pathname]);
 
   const stopLocationWatch = () => {
     if (locationSubRef.current) {
@@ -151,7 +164,7 @@ export function OverspeedProvider({ children }) {
       ? pos.coords.speed * 3.6
       : NaN;
 
-    console.log("[Speed] GPS speed:", gps, "from raw:", pos?.coords?.speed);
+    console.log("[Speed] GPS speed:", gps?.toFixed(2) || "N/A", "from raw:", pos?.coords?.speed);
 
     let derived = NaN;
     const prev = prevFixRef.current;
@@ -168,8 +181,8 @@ export function OverspeedProvider({ children }) {
         const dt = Math.max(1, ((pos.timestamp || Date.now()) - prev.ts) / 1000);
         
         if (d > 0 && dt > 0) {
-          derived = (d / dt) * 3.6; // Convert m/s to km/h
-          console.log("[Speed] Derived speed:", derived.toFixed(2), "from distance:", d.toFixed(2), "m in", dt.toFixed(2), "s");
+          derived = (d / dt) * 3.6;
+          console.log("[Speed] Derived speed:", derived.toFixed(2), "km/h from", d.toFixed(2), "m in", dt.toFixed(2), "s");
         }
       } catch (e) {
         console.error("[Speed] Derived calculation error:", e);
@@ -187,7 +200,7 @@ export function OverspeedProvider({ children }) {
 
     // Prefer GPS speed if available and reasonable, otherwise use derived
     let kmh = 0;
-    if (Number.isFinite(gps) && gps < 200) { // GPS speed sanity check
+    if (Number.isFinite(gps) && gps < 200) {
       kmh = Math.round(gps * correctionFactor);
     } else if (Number.isFinite(derived) && derived < 200) {
       kmh = Math.round(derived);
@@ -212,9 +225,11 @@ export function OverspeedProvider({ children }) {
     return null;
   };
 
-  // 🟩 Main overspeed checker with safeSpeak integration
   const checkAndLogOverspeed = async (uid, coord, speedKmh) => {
     try {
+      // ✅ Only log violations when delivering
+      if (userStatusRef.current !== "Delivering") return;
+      
       const zone = activeZoneFor(coord);
       const limit =
         zone?.speedLimit > 0 ? Number(zone.speedLimit) : DEFAULT_SPEED_LIMIT;
@@ -270,11 +285,14 @@ export function OverspeedProvider({ children }) {
     }
   };
 
-  // Handle slowdown enter/exit announcements (updates UI state)
   const handleSlowdownTransition = async (coord) => {
     try {
+      // ✅ Only handle slowdown transitions when delivering
+      if (userStatusRef.current !== "Delivering") {
+        return;
+      }
+      
       if (!alertsEnabledRef.current) {
-        // still update UI active zone detection even if alerts disabled
         const zone = activeZoneFor(coord);
         currentSlowdownRef.current = zone?.id ?? null;
         setActiveSlowdown(zone ?? null);
@@ -286,15 +304,12 @@ export function OverspeedProvider({ children }) {
       const newZoneId = zone?.id ?? null;
       const prevZoneId = currentSlowdownRef.current;
 
-      // Entering a new zone
       if (newZoneId && newZoneId !== prevZoneId) {
-        // Set current zone immediately to avoid duplicates
         currentSlowdownRef.current = newZoneId;
         setActiveSlowdown(zone ?? null);
         setShowSlowdownWarning(true);
 
         if (isAlertingSlowdownRef.current) {
-          // currently speaking slowdown; skip TTS (UI still shows)
           console.log("[Slowdown] Entered zone but TTS busy, skipping speak:", zone?.category);
         } else {
           isAlertingSlowdownRef.current = true;
@@ -302,7 +317,6 @@ export function OverspeedProvider({ children }) {
           const message = `Slow down ahead. You are entering a ${cat} zone.`;
           console.log("[Slowdown] Entering zone:", zone?.category, newZoneId);
           await safeSpeak(message);
-          // give some time before allowing another slowdown TTS
           setTimeout(() => {
             isAlertingSlowdownRef.current = false;
           }, 3500);
@@ -310,7 +324,6 @@ export function OverspeedProvider({ children }) {
         return;
       }
 
-      // Exiting a zone
       if (!newZoneId && prevZoneId) {
         const prevZone = (slowdownsRef.current || []).find((z) => z.id === prevZoneId);
         currentSlowdownRef.current = null;
@@ -330,11 +343,8 @@ export function OverspeedProvider({ children }) {
           }, 2500);
         }
       }
-
-      // If still in same zone, do nothing
     } catch (err) {
       console.error("[Slowdown] handle error:", err);
-      // Ensure we don't get stuck in a busy state
       isAlertingSlowdownRef.current = false;
       setShowSlowdownWarning(false);
       setActiveSlowdown(null);
@@ -387,8 +397,8 @@ export function OverspeedProvider({ children }) {
     console.log("[OverspeedProvider] Resetting driving metrics");
     shiftStartTimeRef.current = null;
     lastLocationRef.current = null;
-    totalDistanceRef.current = 0;
-    topSpeedRef.current = 0;
+    setTotalDistance(0);
+    setTopSpeed(0);
     speedReadingsRef.current = [];
   };
 
@@ -399,11 +409,11 @@ export function OverspeedProvider({ children }) {
   };
 
   const initializeShiftMetrics = (currentLocation) => {
-    console.log("[OverspeedProvider] Initializing shift metrics");
+    console.log("[OverspeedProvider] Initializing shift metrics with location:", currentLocation);
     shiftStartTimeRef.current = Date.now();
     lastLocationRef.current = currentLocation;
-    totalDistanceRef.current = 0;
-    topSpeedRef.current = 0;
+    setTotalDistance(0);
+    setTopSpeed(0);
     speedReadingsRef.current = [];
   };
 
@@ -412,8 +422,7 @@ export function OverspeedProvider({ children }) {
     const shiftStartTime = shiftStartTimeRef.current || shiftEndTime;
     const durationMinutes = Math.round((shiftEndTime - shiftStartTime) / 60000);
     const avgSpeed = calculateAverageSpeed();
-    const distance = parseFloat(totalDistanceRef.current.toFixed(2));
-    const topSpd = topSpeedRef.current;
+    const distance = parseFloat(totalDistance.toFixed(2));
 
     console.log(
       "[OverspeedProvider] Shift metrics - Duration:",
@@ -423,18 +432,19 @@ export function OverspeedProvider({ children }) {
       "km/h, Distance:",
       distance,
       "km, Top speed:",
-      topSpd,
+      topSpeed,
       "km/h"
     );
 
     return {
       durationMinutes: durationMinutes || 0,
       avgSpeed: avgSpeed || 0,
-      topSpeed: topSpd || 0,
+      topSpeed: topSpeed || 0,
       distance: distance || 0,
     };
   };
 
+  // ✅ UPDATED: Start location tracking immediately when allowed
   const startLocationWatch = async (uid) => {
     try {
       if (!trackingAllowedRef.current) {
@@ -446,21 +456,34 @@ export function OverspeedProvider({ children }) {
         return;
       }
 
+      console.log("[OverspeedProvider] Starting location watch for user:", uid);
       console.log("[OverspeedProvider] Requesting location permissions...");
+      
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
         console.warn("[OverspeedProvider] Location permission denied");
+        Alert.alert(
+          "Location Permission Required",
+          "Please enable location permissions to use this app.",
+          [{ text: "OK" }]
+        );
         return;
       }
 
+      console.log("[OverspeedProvider] Getting initial position...");
       const initial = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
+        accuracy: Location.Accuracy.BestForNavigation,
       }).catch((error) => {
         console.error("[OverspeedProvider] Failed to get initial position:", error);
         return null;
       });
 
-      if (!initial?.coords) return;
+      if (!initial?.coords) {
+        console.warn("[OverspeedProvider] No initial coordinates received");
+        return;
+      }
+
+      console.log("[OverspeedProvider] Initial position:", initial.coords.latitude, initial.coords.longitude);
 
       prevFixRef.current = {
         coord: {
@@ -469,6 +492,7 @@ export function OverspeedProvider({ children }) {
         },
         ts: initial.timestamp || Date.now(),
       };
+      
       const kmh0 = calcSpeedKmh(initial);
       setSpeed(kmh0);
       setLocation({
@@ -476,37 +500,42 @@ export function OverspeedProvider({ children }) {
         longitude: initial.coords.longitude,
       });
 
-      await updateDoc(doc(db, "users", uid), {
-        location: {
-          latitude: initial.coords.latitude,
-          longitude: initial.coords.longitude,
-          speedKmh: kmh0,
-        },
-        lastLocationAt: serverTimestamp(),
-      });
+      console.log("[OverspeedProvider] Initial speed set to:", kmh0, "km/h");
 
-      // Run slowdown transition check on initial fix
+      // Update Firestore with initial location
       try {
-        await handleSlowdownTransition(initial.coords);
+        await updateDoc(doc(db, "users", uid), {
+          location: {
+            latitude: initial.coords.latitude,
+            longitude: initial.coords.longitude,
+            speedKmh: kmh0,
+          },
+          lastLocationAt: serverTimestamp(),
+        });
+        console.log("[OverspeedProvider] Initial location written to Firestore");
       } catch (e) {
-        console.error("[OverspeedProvider] Initial slowdown check failed:", e);
+        console.error("[OverspeedProvider] Failed to write initial location:", e);
       }
 
-      await checkAndLogOverspeed(uid, initial.coords, kmh0);
-
+      // Start watching position
+      console.log("[OverspeedProvider] Starting position watch...");
       locationSubRef.current = await Location.watchPositionAsync(
         {
-          accuracy: Location.Accuracy.Balanced,
-          timeInterval: 5000,
-          distanceInterval: 10,
+          accuracy: Location.Accuracy.BestForNavigation,
+          timeInterval: 3000, // Update every 3 seconds
+          distanceInterval: 5, // Or every 5 meters
         },
         async (pos) => {
           try {
-            if (!pos?.coords) return;
+            if (!pos?.coords) {
+              console.warn("[OverspeedProvider] Position update with no coords");
+              return;
+            }
 
             const now = Date.now();
-            if (now - lastWriteTsRef.current < 2000) return;
-            lastWriteTsRef.current = now;
+            
+            // Throttle Firestore writes but not UI updates
+            const shouldWriteToFirestore = (now - lastWriteTsRef.current) >= 2000;
 
             const kmh = calcSpeedKmh(pos);
             const newLocation = {
@@ -514,23 +543,23 @@ export function OverspeedProvider({ children }) {
               longitude: pos.coords.longitude,
             };
 
+            console.log("[OverspeedProvider] Location update:", newLocation.latitude, newLocation.longitude, "Speed:", kmh, "km/h");
+
+            // ✅ Always update UI state
             setSpeed(kmh);
             setLocation(newLocation);
 
-            // 🔹 Track metrics ONLY if shift has started
+            // Track metrics ONLY if shift has started
             if (shiftStartTimeRef.current) {
-              // Update top speed
-              if (kmh > topSpeedRef.current) {
-                topSpeedRef.current = kmh;
+              if (kmh > topSpeed) {
+                setTopSpeed(kmh);
                 console.log("[Metrics] New top speed:", kmh, "km/h");
               }
 
-              // Record speed for average calculation (only if moving)
               if (kmh > 0) {
                 speedReadingsRef.current.push(kmh);
               }
 
-              // Calculate distance traveled
               if (lastLocationRef.current) {
                 const distanceKm = calculateDistance(
                   lastLocationRef.current.latitude,
@@ -539,26 +568,36 @@ export function OverspeedProvider({ children }) {
                   newLocation.longitude
                 );
                 
-                // Only add if distance is reasonable (not GPS noise)
-                if (distanceKm > 0.005 && distanceKm < 1) { // between 5m and 1km
-                  totalDistanceRef.current += distanceKm;
-                  console.log("[Metrics] Distance added:", distanceKm.toFixed(3), "km, Total:", totalDistanceRef.current.toFixed(2), "km");
+                if (distanceKm > 0.005 && distanceKm < 1) {
+                  setTotalDistance(prev => {
+                    const newTotal = prev + distanceKm;
+                    console.log("[Metrics] Distance added:", distanceKm.toFixed(3), "km, Total:", newTotal.toFixed(2), "km");
+                    return newTotal;
+                  });
                 }
               }
 
               lastLocationRef.current = newLocation;
             }
 
-            await updateDoc(doc(db, "users", uid), {
-              location: {
-                latitude: pos.coords.latitude,
-                longitude: pos.coords.longitude,
-                speedKmh: kmh,
-              },
-              lastLocationAt: serverTimestamp(),
-            });
+            // Write to Firestore (throttled)
+            if (shouldWriteToFirestore) {
+              lastWriteTsRef.current = now;
+              try {
+                await updateDoc(doc(db, "users", uid), {
+                  location: {
+                    latitude: pos.coords.latitude,
+                    longitude: pos.coords.longitude,
+                    speedKmh: kmh,
+                  },
+                  lastLocationAt: serverTimestamp(),
+                });
+              } catch (e) {
+                console.error("[OverspeedProvider] Failed to update location in Firestore:", e);
+              }
+            }
 
-            // Check for slowdown enter/exit on every location update (non-blocking)
+            // Handle slowdown transitions (only when delivering)
             try {
               handleSlowdownTransition(pos.coords).catch((e) =>
                 console.error("[OverspeedProvider] Slowdown handler error:", e)
@@ -567,14 +606,18 @@ export function OverspeedProvider({ children }) {
               console.error("[OverspeedProvider] Slowdown handler sync error:", e);
             }
 
+            // Check for overspeeding (only when delivering)
             await checkAndLogOverspeed(uid, pos.coords, kmh);
           } catch (error) {
             console.error("[OverspeedProvider] Position watch callback error:", error);
           }
         }
       );
+      
+      console.log("[OverspeedProvider] Location watch started successfully");
     } catch (error) {
       console.error("[OverspeedProvider] Failed to start location watch:", error);
+      Alert.alert("Location Error", "Failed to start location tracking. Please try again.");
     }
   };
 
@@ -584,8 +627,15 @@ export function OverspeedProvider({ children }) {
       try {
         stopLocationWatch();
         if (userDocUnsubRef.current) userDocUnsubRef.current();
-        if (!user) return;
+        
+        if (!user) {
+          console.log("[OverspeedProvider] No user, stopping tracking");
+          currentUserIdRef.current = null;
+          return;
+        }
 
+        console.log("[OverspeedProvider] User logged in:", user.uid);
+        currentUserIdRef.current = user.uid;
         shiftAlertShownRef.current = false;
 
         const userRef = doc(db, "users", user.uid);
@@ -595,6 +645,10 @@ export function OverspeedProvider({ children }) {
             try {
               if (!snap.exists()) return;
               const data = snap.data() || {};
+
+              // ✅ Store current status
+              userStatusRef.current = data.status || "Offline";
+              console.log("[OverspeedProvider] User status:", userStatusRef.current);
 
               if (
                 typeof data.violations === "undefined" &&
@@ -627,7 +681,6 @@ export function OverspeedProvider({ children }) {
                         { cancelable: false }
                       );
                     } else if (last.message === "Shift completed") {
-                      // 🟢 Prevent duplicate "Shift Ended" alerts within same session
                       if (!shiftAlertShownRef.current) {
                         shiftAlertShownRef.current = true;
                         Alert.alert(
@@ -637,7 +690,7 @@ export function OverspeedProvider({ children }) {
                           { cancelable: false }
                         );
                       } else {
-                        console.log("[OverspeedProvider] Shift End alert already shown — skipping");
+                        console.log("[OverspeedProvider] Shift End alert already shown – skipping");
                       }
                     }
 
@@ -655,11 +708,10 @@ export function OverspeedProvider({ children }) {
                 ? await loadBranchSlowdowns(data.branchId)
                 : [];
 
-              const status = String(data.status || "").toLowerCase();
-              if (status === "delivering" && trackingAllowedRef.current) {
+              // ✅ Start tracking for any logged-in user (not just when Delivering)
+              if (trackingAllowedRef.current && !locationSubRef.current) {
+                console.log("[OverspeedProvider] Starting location tracking...");
                 startLocationWatch(user.uid);
-              } else {
-                stopLocationWatch();
               }
             } catch (error) {
               console.error("[OverspeedProvider] Snapshot handler error:", error);
@@ -695,14 +747,11 @@ export function OverspeedProvider({ children }) {
         initializeShiftMetrics,
         getShiftMetrics,
         calculateAverageSpeed,
-        topSpeed: topSpeedRef.current,
-        totalDistance: totalDistanceRef.current,
+        topSpeed,
+        totalDistance,
         activeSlowdown,
         showSlowdownWarning,
         slowdowns: slowdownsRef.current,
-        // 🔹 ADD THESE - expose the refs so they can be read in real-time
-        shiftStartTime: shiftStartTimeRef.current,
-        speedReadings: speedReadingsRef.current,
       }}
     >
       {children}

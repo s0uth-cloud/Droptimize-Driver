@@ -312,14 +312,7 @@ export default function Map({ user: passedUser }) {
   const waypoints = destinations.slice(0, -1);
   const finalDestination = destinations.length > 0 ? destinations[destinations.length - 1] : null;
 
-  const getETAColor = () => {
-    if (etaMinutes == null) return "#0064b5";
-    if (etaMinutes < 15) return "#29bf12";
-    if (etaMinutes < 30) return "#ff9914";
-    return "#f21b3f";
-  };
-
-  const effectiveLimit = DEFAULT_SPEED_LIMIT;
+  const effectiveLimit = activeSlowdown?.speedLimit ?? DEFAULT_SPEED_LIMIT;
 
   return (
     <View style={styles.container}>
