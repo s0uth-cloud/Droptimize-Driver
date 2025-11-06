@@ -29,6 +29,7 @@ export function useOverspeed() {
 const DEFAULT_SPEED_LIMIT = 60;
 const DEFAULT_ZONE_RADIUS = 15;
 const VIOLATION_COOLDOWN_MS = 60000;
+const MIN_SPEED_FOR_VIOLATION = 5; // Don't record violations below 5 km/h
 const correctionFactor = 1.12;
 
 export function OverspeedProvider({ children }) {
@@ -65,7 +66,7 @@ export function OverspeedProvider({ children }) {
   const trackingAllowedRef = useRef(true);
 
   const prevViolationsCountRef = useRef(0);
-  const shiftAlertShownRef = useRef(false);
+  const alertedViolationTimestampsRef = useRef(new Set()); // ✅ Track which violations we've alerted
 
   // ✅ Track metrics with refs for accurate calculations
   const shiftStartTimeRef = useRef(null);
@@ -161,8 +162,6 @@ export function OverspeedProvider({ children }) {
       ? pos.coords.speed * 3.6
       : NaN;
 
-    console.log("[Speed] GPS speed:", gps?.toFixed(2) || "N/A", "from raw:", pos?.coords?.speed);
-
     let derived = NaN;
     const prev = prevFixRef.current;
     
@@ -178,7 +177,6 @@ export function OverspeedProvider({ children }) {
         
         if (d > 0 && dt > 0) {
           derived = (d / dt) * 3.6;
-          console.log("[Speed] Derived speed:", derived.toFixed(2), "km/h from", d.toFixed(2), "m in", dt.toFixed(2), "s");
         }
       } catch (e) {
         console.error("[Speed] Derived calculation error:", e);
@@ -201,7 +199,6 @@ export function OverspeedProvider({ children }) {
     }
 
     const finalSpeed = kmh < 2 ? 0 : kmh;
-    console.log("[Speed] Final speed:", finalSpeed, "km/h");
     
     return finalSpeed;
   };
@@ -220,12 +217,15 @@ export function OverspeedProvider({ children }) {
 
   const checkAndLogOverspeed = async (uid, coord, speedKmh) => {
     try {
+      // ✅ Only log when delivering AND speed is meaningful
       if (userStatusRef.current !== "Delivering") return;
+      if (speedKmh < MIN_SPEED_FOR_VIOLATION) return; // Don't record very low speeds as violations
       
       const zone = activeZoneFor(coord);
-      const limit =
-        zone?.speedLimit > 0 ? Number(zone.speedLimit) : DEFAULT_SPEED_LIMIT;
-      if (!(speedKmh > limit)) return;
+      const limit = zone?.speedLimit > 0 ? Number(zone.speedLimit) : DEFAULT_SPEED_LIMIT;
+      
+      // ✅ Must be significantly over the limit (at least 1 km/h over)
+      if (speedKmh <= limit) return;
 
       const now = Date.now();
       const zoneKey = zone?.id ?? "default";
@@ -262,15 +262,17 @@ export function OverspeedProvider({ children }) {
         zoneLimit: zone?.speedLimit ?? null,
         defaultLimit: DEFAULT_SPEED_LIMIT,
       };
+      
       try {
         await updateDoc(userRef, { violations: arrayUnion(payload) });
         console.log("[OverspeedProvider] Violation logged to Firestore");
+        
+        // Immediately speak the violation
+        if (alertsEnabledRef.current) {
+          await safeSpeak("Speeding violation");
+        }
       } catch (error) {
         console.error("[OverspeedProvider] Failed to log violation:", error);
-      }
-
-      if (alertsEnabledRef.current) {
-        await safeSpeak("Speeding violation");
       }
     } catch (error) {
       console.error("[OverspeedProvider] checkAndLogOverspeed error:", error);
@@ -389,7 +391,6 @@ export function OverspeedProvider({ children }) {
     if (speedReadingsRef.current.length === 0) return 0;
     const sum = speedReadingsRef.current.reduce((acc, speed) => acc + speed, 0);
     const avg = Math.round(sum / speedReadingsRef.current.length);
-    console.log("[Metrics] Calculating average from", speedReadingsRef.current.length, "readings:", avg, "km/h");
     return avg;
   };
 
@@ -540,13 +541,14 @@ export function OverspeedProvider({ children }) {
 
             // ✅ Track metrics ONLY when actively delivering
             if (isTrackingMetricsRef.current && shiftStartTimeRef.current) {
-              console.log("[Metrics] Tracking update - Speed:", kmh, "km/h");
-              
-              // Update top speed
-              if (kmh > topSpeed) {
-                setTopSpeed(kmh);
-                console.log("[Metrics] New top speed:", kmh, "km/h");
-              }
+              // Update top speed - only if current speed is higher than previous top
+              setTopSpeed(prevTop => {
+                if (kmh > prevTop) {
+                  console.log("[Metrics] New top speed:", kmh, "km/h (previous:", prevTop, "km/h)");
+                  return kmh;
+                }
+                return prevTop;
+              });
 
               // Record speed reading (only if moving)
               if (kmh > 0) {
@@ -554,7 +556,6 @@ export function OverspeedProvider({ children }) {
                 // Update average speed state for real-time display
                 const newAvg = calculateAverageSpeed();
                 setAvgSpeed(newAvg);
-                console.log("[Metrics] Added speed reading:", kmh, "km/h, New avg:", newAvg, "km/h");
               }
 
               // Calculate distance
@@ -570,7 +571,6 @@ export function OverspeedProvider({ children }) {
                 if (distanceKm > 0.005 && distanceKm < 1) {
                   setTotalDistance(prev => {
                     const newTotal = prev + distanceKm;
-                    console.log("[Metrics] Distance added:", distanceKm.toFixed(3), "km, Total:", newTotal.toFixed(2), "km");
                     return newTotal;
                   });
                 } else if (distanceKm >= 1) {
@@ -632,12 +632,12 @@ export function OverspeedProvider({ children }) {
         if (!user) {
           console.log("[OverspeedProvider] No user, stopping tracking");
           currentUserIdRef.current = null;
+          alertedViolationTimestampsRef.current.clear(); // Clear on logout
           return;
         }
 
         console.log("[OverspeedProvider] User logged in:", user.uid);
         currentUserIdRef.current = user.uid;
-        shiftAlertShownRef.current = false;
 
         const userRef = doc(db, "users", user.uid);
         userDocUnsubRef.current = onSnapshot(
@@ -663,16 +663,30 @@ export function OverspeedProvider({ children }) {
                 ? data.violations
                 : [];
 
-              if (
-                alertsEnabledRef.current &&
-                !isAlertingViolationRef.current
-              ) {
+              // ✅ Only show alerts for NEW violations that haven't been alerted yet
+              if (alertsEnabledRef.current && !isAlertingViolationRef.current) {
                 const newCount = violationsArr.length;
                 if (newCount > prevViolationsCountRef.current) {
-                  const last = violationsArr[newCount - 1];
-                  if (last) {
+                  // Check only the new violations
+                  for (let i = prevViolationsCountRef.current; i < newCount; i++) {
+                    const violation = violationsArr[i];
+                    if (!violation) continue;
+
+                    // Create unique key for this violation
+                    const violationKey = `${violation.message}_${violation.issuedAt?.seconds || Date.now()}`;
+                    
+                    // Skip if we've already alerted this violation
+                    if (alertedViolationTimestampsRef.current.has(violationKey)) {
+                      console.log("[OverspeedProvider] Skipping already-alerted violation:", violationKey);
+                      continue;
+                    }
+
+                    // Mark as alerted
+                    alertedViolationTimestampsRef.current.add(violationKey);
                     isAlertingViolationRef.current = true;
-                    if (last.message === "Speeding violation") {
+
+                    // Only show UI alerts for speeding violations (not shift completed)
+                    if (violation.message === "Speeding violation") {
                       await safeSpeak("You have a violation");
                       Alert.alert(
                         "Notice of Violation",
@@ -680,17 +694,8 @@ export function OverspeedProvider({ children }) {
                         [{ text: "OK" }],
                         { cancelable: false }
                       );
-                    } else if (last.message === "Shift completed") {
-                      if (!shiftAlertShownRef.current) {
-                        shiftAlertShownRef.current = true;
-                        Alert.alert(
-                          "Shift Ended",
-                          "Your shift has ended. Check your driving history on Driving Stats.",
-                          [{ text: "OK" }],
-                          { cancelable: false }
-                        );
-                      }
                     }
+                    // Don't show alert for "Shift completed" - it's just history
 
                     setTimeout(() => {
                       isAlertingViolationRef.current = false;
@@ -746,7 +751,7 @@ export function OverspeedProvider({ children }) {
         calculateAverageSpeed,
         topSpeed,
         totalDistance,
-        avgSpeed, // ✅ Export avgSpeed for real-time display
+        avgSpeed,
         activeSlowdown,
         showSlowdownWarning,
         slowdowns: slowdownsRef.current,
