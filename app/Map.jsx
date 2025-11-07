@@ -467,7 +467,7 @@ export default function Map({ user: passedUser }) {
         <View style={styles.row}>
           <View style={styles.infoCard}>
             <Text style={styles.label}>Speed Limit</Text>
-            <Text style={[styles.infoValue, { color: "#f21b3f" }]}>{effectiveLimit}</Text>
+            <Text style={[styles.infoValue, { color: "#ff9914" }]}>{effectiveLimit}</Text>
             <Text style={styles.unit}>km/h</Text>
           </View>
           <View style={styles.infoCard}>
@@ -491,7 +491,7 @@ export default function Map({ user: passedUser }) {
 
         {effectiveLimit > 0 && speed > effectiveLimit && (
           <View style={styles.warningBox}>
-            <Ionicons name="alert-circle" size={20} color="#f21b3f" />
+            <Ionicons name="alert-circle" size={20} color="#fff" />
             <Text style={styles.warningText}>You are overspeeding!</Text>
           </View>
         )}
@@ -565,9 +565,9 @@ const styles = StyleSheet.create({
   },
   followBtn: {
     position: "absolute",
-    bottom: 220,
+    top: "50%",
     right: 12,
-    zIndex: 20
+    zIndex: 20,
   },
   followInner: {
     flexDirection: "row",
@@ -631,15 +631,22 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#ffe6e6",
-    paddingVertical: 8,
+    backgroundColor: "#f21b3f",
+    paddingVertical: 12,
     borderRadius: 12,
+    shadowColor: "#f21b3f",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 8,
   },
+
   warningText: {
-    color: "#f21b3f",
-    fontWeight: "600",
-    fontSize: 14,
-    marginLeft: 8
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 16,
+    marginLeft: 8,
+    textTransform: "uppercase",
   },
   slowdownAlert: {
     position: "absolute",
