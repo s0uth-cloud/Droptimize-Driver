@@ -81,6 +81,14 @@ export function OverspeedProvider({ children }) {
   const userStatusRef = useRef("Offline");
   const currentUserIdRef = useRef(null);
 
+  // Overspeed session tracking
+  const overspeedSessionRef = useRef(null);
+  const overspeedStartTimeRef = useRef(null);
+  const overspeedSpeedReadingsRef = useRef([]);
+  const overspeedLastLocationRef = useRef(null);
+  const overspeedDistanceRef = useRef(0);
+  const overspeedCheckTimerRef = useRef(null);
+
   const onLogin = pathname === "/Login";
 
   // Initialize and prewarm TTS
@@ -215,65 +223,168 @@ export function OverspeedProvider({ children }) {
     return null;
   };
 
+  // End overspeed session and log violation if confirmed
+  const endOverspeedSession = async (uid) => {
+    if (!overspeedSessionRef.current) return;
+    
+    // ✅ Prevent multiple saves of the same session
+    const session = overspeedSessionRef.current;
+    if (session.saved) {
+      console.log("[Overspeed] Session already saved, skipping");
+      overspeedSessionRef.current = null;
+      return;
+    }
+    
+    try {
+      const endTime = Date.now();
+      const durationSeconds = (endTime - overspeedStartTimeRef.current) / 1000;
+      const durationMinutes = Math.round(durationSeconds / 60);
+      
+      // Clear the confirmation timer
+      if (overspeedCheckTimerRef.current) {
+        clearTimeout(overspeedCheckTimerRef.current);
+        overspeedCheckTimerRef.current = null;
+      }
+      
+      // Only save if violation was confirmed (lasted more than 10 seconds)
+      if (session.confirmed) {
+        // ✅ Mark as saving to prevent race conditions
+        session.saved = true;
+        
+        // Calculate metrics
+        const topSpeed = Math.max(...overspeedSpeedReadingsRef.current, 0);
+        const avgSpeed = overspeedSpeedReadingsRef.current.length > 0
+          ? Math.round(
+              overspeedSpeedReadingsRef.current.reduce((a, b) => a + b, 0) /
+              overspeedSpeedReadingsRef.current.length
+            )
+          : 0;
+        
+        const payload = {
+          message: "Speeding violation",
+          confirmed: true,
+          issuedAt: Timestamp.now(),
+          driverLocation: overspeedLastLocationRef.current
+            ? {
+                latitude: overspeedLastLocationRef.current.latitude,
+                longitude: overspeedLastLocationRef.current.longitude,
+              }
+            : null,
+          topSpeed: Math.round(topSpeed),
+          avgSpeed: Math.round(avgSpeed),
+          distance: parseFloat(overspeedDistanceRef.current.toFixed(2)),
+          time: durationMinutes,
+          zoneId: session.zone?.id ?? null,
+          zoneLimit: session.zone?.speedLimit ?? null,
+          defaultLimit: DEFAULT_SPEED_LIMIT,
+          speedLimit: session.limit,
+        };
+        
+        console.log("[Overspeed] Saving violation session:", payload);
+        
+        const userRef = doc(db, "users", uid);
+        await updateDoc(userRef, { violations: arrayUnion(payload) });
+        
+        console.log("[Overspeed] Violation session saved successfully");
+        
+        // ✅ Don't speak here - let snapshot listener handle it
+        
+      } else {
+        console.log("[Overspeed] Session ended before 10 seconds - no violation recorded");
+      }
+      
+    } catch (error) {
+      console.error("[OverspeedProvider] Failed to save overspeeding session:", error);
+    } finally {
+      // Reset session tracking
+      overspeedSessionRef.current = null;
+      overspeedStartTimeRef.current = null;
+      overspeedSpeedReadingsRef.current = [];
+      overspeedLastLocationRef.current = null;
+      overspeedDistanceRef.current = 0;
+      if (overspeedCheckTimerRef.current) {
+        clearTimeout(overspeedCheckTimerRef.current);
+        overspeedCheckTimerRef.current = null;
+      }
+    }
+  };
+
+  // Check speed against active zone and log overspeeding
   const checkAndLogOverspeed = async (uid, coord, speedKmh) => {
     try {
-      // ✅ Only log when delivering AND speed is meaningful
-      if (userStatusRef.current !== "Delivering") return;
-      if (speedKmh < MIN_SPEED_FOR_VIOLATION) return; // Don't record very low speeds as violations
+      // Only log when delivering AND speed is meaningful
+      if (userStatusRef.current !== "Delivering") {
+        // If there was an active session, end it
+        if (overspeedSessionRef.current) {
+          await endOverspeedSession(uid);
+        }
+        return;
+      }
+      
+      if (speedKmh < MIN_SPEED_FOR_VIOLATION) {
+        // If there was an active session, end it
+        if (overspeedSessionRef.current) {
+          await endOverspeedSession(uid);
+        }
+        return;
+      }
       
       const zone = activeZoneFor(coord);
       const limit = zone?.speedLimit > 0 ? Number(zone.speedLimit) : DEFAULT_SPEED_LIMIT;
       
-      // ✅ Must be significantly over the limit (at least 1 km/h over)
-      if (speedKmh <= limit) return;
-
-      const now = Date.now();
-      const zoneKey = zone?.id ?? "default";
-      const sameZone = zoneKey === (lastZoneViolationIdRef.current ?? "default");
-      if (now - lastViolationTsRef.current < VIOLATION_COOLDOWN_MS && sameZone) {
-        return;
-      }
-
-      console.warn(
-        "[OverspeedProvider] VIOLATION - Speed:",
-        speedKmh,
-        "Limit:",
-        limit,
-        "Zone:",
-        zone?.category
-      );
-      lastViolationTsRef.current = now;
-      lastZoneViolationIdRef.current = zoneKey;
-
-      const userRef = doc(db, "users", uid);
-      const payload = {
-        message: "Speeding violation",
-        confirmed: false,
-        issuedAt: Timestamp.now(),
-        driverLocation: {
-          latitude: coord.latitude,
-          longitude: coord.longitude,
-        },
-        topSpeed: Math.round(speedKmh),
-        avgSpeed: Math.round(speedKmh),
-        distance: 0,
-        time: 0,
-        zoneId: zone?.id ?? null,
-        zoneLimit: zone?.speedLimit ?? null,
-        defaultLimit: DEFAULT_SPEED_LIMIT,
-      };
+      const isOverspeeding = speedKmh > limit;
       
-      try {
-        await updateDoc(userRef, { violations: arrayUnion(payload) });
-        console.log("[OverspeedProvider] Violation logged to Firestore");
-        
-        // Immediately speak the violation
-        if (alertsEnabledRef.current) {
-          await safeSpeak("Speeding violation");
+      // Case 1: Currently overspeeding
+      if (isOverspeeding) {
+        if (!overspeedSessionRef.current) {
+          // Start tracking potential violation
+          console.log("[Overspeed] Started tracking overspeeding at", speedKmh, "km/h (limit:", limit, ")");
+          overspeedSessionRef.current = {
+            startTime: Date.now(),
+            zone: zone,
+            limit: limit,
+            confirmed: false // Not yet a violation
+          };
+          overspeedStartTimeRef.current = Date.now();
+          overspeedSpeedReadingsRef.current = [speedKmh];
+          overspeedLastLocationRef.current = coord;
+          overspeedDistanceRef.current = 0;
+          
+          // Set timer to confirm violation after 10 seconds
+          overspeedCheckTimerRef.current = setTimeout(() => {
+            if (overspeedSessionRef.current && !overspeedSessionRef.current.confirmed) {
+              overspeedSessionRef.current.confirmed = true;
+              console.log("[Overspeed] Violation CONFIRMED after 10 seconds");
+            }
+          }, 10000); // 10 seconds
+          
+        } else {
+          // Continue tracking existing session
+          overspeedSpeedReadingsRef.current.push(speedKmh);
+          
+          // Calculate distance traveled while overspeeding
+          if (overspeedLastLocationRef.current) {
+            const distanceKm = calculateDistance(
+              overspeedLastLocationRef.current.latitude,
+              overspeedLastLocationRef.current.longitude,
+              coord.latitude,
+              coord.longitude
+            );
+            
+            // Only add reasonable distances
+            if (distanceKm > 0.001 && distanceKm < 0.5) {
+              overspeedDistanceRef.current += distanceKm;
+            }
+          }
+          
+          overspeedLastLocationRef.current = coord;
         }
-      } catch (error) {
-        console.error("[OverspeedProvider] Failed to log violation:", error);
+      } 
+      // Case 2: No longer overspeeding but have active session
+      else if (overspeedSessionRef.current) {
+        await endOverspeedSession(uid);
       }
+      
     } catch (error) {
       console.error("[OverspeedProvider] checkAndLogOverspeed error:", error);
     }
@@ -666,44 +777,57 @@ export function OverspeedProvider({ children }) {
               // ✅ Only show alerts for NEW violations that haven't been alerted yet
               if (alertsEnabledRef.current && !isAlertingViolationRef.current) {
                 const newCount = violationsArr.length;
+                
                 if (newCount > prevViolationsCountRef.current) {
                   // Check only the new violations
                   for (let i = prevViolationsCountRef.current; i < newCount; i++) {
                     const violation = violationsArr[i];
                     if (!violation) continue;
 
-                    // Create unique key for this violation
-                    const violationKey = `${violation.message}_${violation.issuedAt?.seconds || Date.now()}`;
+                    // ✅ Create UNIQUE key using multiple fields to prevent duplicates
+                    const violationKey = `${violation.message}_${violation.issuedAt?.seconds}_${violation.topSpeed}_${violation.avgSpeed}_${i}`;
                     
                     // Skip if we've already alerted this violation
                     if (alertedViolationTimestampsRef.current.has(violationKey)) {
-                      console.log("[OverspeedProvider] Skipping already-alerted violation:", violationKey);
+                      console.log("[OverspeedProvider] Skipping duplicate violation:", violationKey);
                       continue;
                     }
 
-                    // Mark as alerted
+                    // Mark as alerted BEFORE showing alert
                     alertedViolationTimestampsRef.current.add(violationKey);
                     isAlertingViolationRef.current = true;
 
                     // Only show UI alerts for speeding violations (not shift completed)
                     if (violation.message === "Speeding violation") {
-                      await safeSpeak("You have a violation");
-                      Alert.alert(
-                        "Notice of Violation",
-                        "Open your Driving Stats to review your violation.",
-                        [{ text: "OK" }],
-                        { cancelable: false }
-                      );
+                      console.log("[OverspeedProvider] Showing NEW violation alert:", violationKey);
+                      
+                      // Use async IIFE to handle promises properly
+                      (async () => {
+                        try {
+                          await safeSpeak("You have a violation");
+                          Alert.alert(
+                            "Notice of Violation",
+                            "Open your Driving Stats to review your violation.",
+                            [{ text: "OK" }],
+                            { cancelable: false }
+                          );
+                        } catch (err) {
+                          console.error("[OverspeedProvider] Alert error:", err);
+                        } finally {
+                          setTimeout(() => {
+                            isAlertingViolationRef.current = false;
+                          }, 3000);
+                        }
+                      })();
+                      
+                      // Exit loop after first alert to avoid overwhelming user
+                      break;
                     }
-                    // Don't show alert for "Shift completed" - it's just history
-
-                    setTimeout(() => {
-                      isAlertingViolationRef.current = false;
-                    }, 3000);
                   }
                 }
                 prevViolationsCountRef.current = newCount;
               } else {
+                // Just update count if alerts disabled
                 prevViolationsCountRef.current = violationsArr.length;
               }
 
@@ -732,6 +856,11 @@ export function OverspeedProvider({ children }) {
         if (userDocUnsubRef.current) userDocUnsubRef.current();
         stopLocationWatch();
         Speech.stop();
+
+        // Clear any active overspeed check timer
+        if (overspeedCheckTimerRef.current) {
+          clearTimeout(overspeedCheckTimerRef.current);
+        }
       } catch (e) {
         console.error("[OverspeedProvider] Cleanup error:", e);
       }
