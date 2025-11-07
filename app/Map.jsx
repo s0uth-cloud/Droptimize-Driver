@@ -21,10 +21,12 @@ const DEFAULT_SPEED_LIMIT = 60;
 const DEFAULT_RADIUS = 15;
 const CATEGORY_COLORS = {
   Crosswalk: "#00bfff",
-  School: "#ff9800",
+  School: "#ff9914",
+  Schools: "#ff9914",
   Church: "#9c27b0",
   Curve: "#4caf50",
   Slippery: "#f44336",
+  Slowdown: "#9e9e9e",
   Default: "#9e9e9e",
 };
 
@@ -49,7 +51,6 @@ function smoothHeading(prevDeg, nextDeg) {
   return (prevDeg + diff * 0.25 + 360) % 360;
 }
 
-// ✅ Fixed: Use consistent coordinate format
 const metersBetween = (a, b) => {
   try {
     return haversine(
@@ -332,12 +333,15 @@ export default function Map({ user: passedUser }) {
   const waypoints = destinations.slice(0, -1);
   const finalDestination = destinations.length > 0 ? destinations[destinations.length - 1] : null;
 
-  // ✅ Get effective speed limit from active slowdown zone or default
-  const effectiveLimit = activeSlowdown?.speedLimit ?? DEFAULT_SPEED_LIMIT;
+  // ✅ CRITICAL FIX: Get effective speed limit from active slowdown zone
+  // The activeSlowdown from provider already has the correct speedLimit calculated
+  const effectiveLimit = activeSlowdown?.speedLimit || DEFAULT_SPEED_LIMIT;
+  
+  console.log("[Map] Effective speed limit:", effectiveLimit, "| Active zone:", activeSlowdown?.category || "None", "| Speed:", speed);
 
   return (
     <View style={styles.container}>
-      {/* ✅ Fixed: Slowdown banner with better positioning */}
+      {/* ✅ Slowdown banner */}
       {showSlowdownWarning && activeSlowdown && (
         <View style={styles.slowdownAlert}>
           <Ionicons name="warning" size={22} color="#ffcc00" />
@@ -717,7 +721,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginLeft: 8,
   },
-  // ✅ Fixed: Better positioning to avoid overlap with ETA panel
   slowdownAlert: {
     position: "absolute",
     top: 20,

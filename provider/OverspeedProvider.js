@@ -33,6 +33,18 @@ const MIN_SPEED_FOR_VIOLATION = 5;
 const OVERSPEED_GRACE_PERIOD_MS = 10000;
 const correctionFactor = 1.12;
 
+// ✅ Fallback speed limits only used if admin didn't set one
+const ZONE_DEFAULT_SPEEDS = {
+  Crosswalk: 15,
+  School: 20,
+  Schools: 20,
+  Church: 30,
+  Curve: 40,
+  Slippery: 40,
+  Slowdown: 40,
+  Default: DEFAULT_SPEED_LIMIT,
+};
+
 export function OverspeedProvider({ children }) {
   console.log("[OverspeedProvider] Initializing");
   const pathname = usePathname();
@@ -195,6 +207,7 @@ export function OverspeedProvider({ children }) {
     return finalSpeed;
   };
 
+  // ✅ CRITICAL FIX: Properly read speed limits from ALL zone types
   const activeZoneFor = (coord) => {
     if (!coord || typeof coord.latitude !== 'number' || typeof coord.longitude !== 'number') {
       return null;
@@ -213,8 +226,33 @@ export function OverspeedProvider({ children }) {
         
         const r = Number(z?.radius) > 0 ? Number(z.radius) : DEFAULT_ZONE_RADIUS;
         if (d <= r) {
-          console.log("[Zone] Inside zone:", z.category, "Distance:", d.toFixed(2), "m");
-          return z;
+          // ✅ CRITICAL: Determine speed limit with proper priority
+          let effectiveSpeedLimit;
+          const category = z.category || "Default";
+          
+          // Priority 1: Use admin-set speedLimit if it exists and is valid
+          if (z.speedLimit !== undefined && z.speedLimit !== null) {
+            const adminLimit = Number(z.speedLimit);
+            if (adminLimit > 0) {
+              effectiveSpeedLimit = adminLimit;
+              console.log("[Zone] Using ADMIN-SET speed limit:", effectiveSpeedLimit, "km/h for", category);
+            } else {
+              // Admin set it to 0 or negative - use category default
+              effectiveSpeedLimit = ZONE_DEFAULT_SPEEDS[category] || DEFAULT_SPEED_LIMIT;
+              console.log("[Zone] Admin set invalid limit, using CATEGORY default:", effectiveSpeedLimit, "km/h for", category);
+            }
+          } else {
+            // Priority 2: No admin limit - use category default
+            effectiveSpeedLimit = ZONE_DEFAULT_SPEEDS[category] || DEFAULT_SPEED_LIMIT;
+            console.log("[Zone] No admin limit, using CATEGORY default:", effectiveSpeedLimit, "km/h for", category);
+          }
+          
+          console.log("[Zone] ✅ Entered zone:", category, "| Distance:", d.toFixed(2), "m | Speed Limit:", effectiveSpeedLimit, "km/h | Raw speedLimit value:", z.speedLimit);
+          
+          return {
+            ...z,
+            speedLimit: effectiveSpeedLimit
+          };
         }
       } catch (e) {
         console.error("[Zone] Distance calculation error:", e);
@@ -238,8 +276,9 @@ export function OverspeedProvider({ children }) {
         return;
       }
       
+      // ✅ Get zone with properly calculated speed limit
       const zone = activeZoneFor(coord);
-      const limit = zone?.speedLimit > 0 ? Number(zone.speedLimit) : DEFAULT_SPEED_LIMIT;
+      const limit = zone?.speedLimit || DEFAULT_SPEED_LIMIT;
       
       if (speedKmh <= limit) {
         if (overspeedStartTimeRef.current) {
@@ -253,7 +292,7 @@ export function OverspeedProvider({ children }) {
       
       if (!overspeedStartTimeRef.current) {
         overspeedStartTimeRef.current = now;
-        console.log("[OverspeedProvider] Started overspeeding - Speed:", speedKmh, "Limit:", limit, "- Starting 10s grace period");
+        console.log("[OverspeedProvider] Started overspeeding - Speed:", speedKmh, "Limit:", limit, "Zone:", zone?.category || "Default", "- Starting 10s grace period");
         return;
       }
       
@@ -270,12 +309,12 @@ export function OverspeedProvider({ children }) {
       }
 
       console.warn(
-        "[OverspeedProvider] VIOLATION - Speed:",
+        "[OverspeedProvider] ⚠️ VIOLATION - Speed:",
         speedKmh,
         "Limit:",
         limit,
         "Zone:",
-        zone?.category,
+        zone?.category || "Default",
         "- Grace period passed"
       );
       lastViolationTsRef.current = now;
@@ -296,6 +335,7 @@ export function OverspeedProvider({ children }) {
         distance: 0,
         time: 0,
         zoneId: zone?.id ?? null,
+        zoneCategory: zone?.category ?? "Default",
         zoneLimit: zone?.speedLimit ?? null,
         defaultLimit: DEFAULT_SPEED_LIMIT,
       };
@@ -343,9 +383,9 @@ export function OverspeedProvider({ children }) {
         } else {
           isAlertingSlowdownRef.current = true;
           const cat = zone?.category ?? "hazard";
-          const limit = zone?.speedLimit ?? DEFAULT_SPEED_LIMIT;
+          const limit = zone?.speedLimit || DEFAULT_SPEED_LIMIT;
           const message = `Slow down ahead. You are entering a ${cat} zone. Speed limit is ${limit} kilometers per hour.`;
-          console.log("[Slowdown] Entering zone:", zone?.category, newZoneId, "Speed limit:", limit);
+          console.log("[Slowdown] 🔊 Entering zone:", zone?.category, newZoneId, "Speed limit:", limit, "km/h");
           await safeSpeak(message);
           setTimeout(() => {
             isAlertingSlowdownRef.current = false;
@@ -366,7 +406,7 @@ export function OverspeedProvider({ children }) {
           isAlertingSlowdownRef.current = true;
           const cat = prevZone?.category ?? "hazard";
           const message = `You have left the ${cat} zone.`;
-          console.log("[Slowdown] Exiting zone:", prevZone?.category, prevZoneId);
+          console.log("[Slowdown] 👋 Exiting zone:", prevZone?.category, prevZoneId);
           await safeSpeak(message);
           setTimeout(() => {
             isAlertingSlowdownRef.current = false;
@@ -395,23 +435,48 @@ export function OverspeedProvider({ children }) {
         console.log("[OverspeedProvider] No slowdowns in branch");
         return [];
       }
-      console.log("[OverspeedProvider] Loaded", data.slowdowns.length, "slowdowns");
-      return data.slowdowns.map((s, i) => ({
-        id: s?.id ?? `slowdown_${i}`,
-        category: s?.category ?? "Default",
-        location: s?.location,
-        radius: s?.radius ?? DEFAULT_ZONE_RADIUS,
-        speedLimit: s?.speedLimit ?? 0,
-      }));
+      console.log("[OverspeedProvider] Found", data.slowdowns.length, "slowdowns in branch");
+      
+      // ✅ CRITICAL: Preserve admin-set speed limits exactly as stored
+      const processedSlowdowns = data.slowdowns.map((s, i) => {
+        const category = s?.category ?? "Default";
+        const adminSpeedLimit = s?.speedLimit; // Keep original value (could be string, number, undefined, null)
+        
+        // Convert to number if it exists
+        let finalSpeedLimit;
+        if (adminSpeedLimit !== undefined && adminSpeedLimit !== null && adminSpeedLimit !== "") {
+          const numericLimit = Number(adminSpeedLimit);
+          if (!isNaN(numericLimit) && numericLimit > 0) {
+            finalSpeedLimit = numericLimit;
+            console.log("[OverspeedProvider] Zone", i, "-", category, "| ADMIN LIMIT:", finalSpeedLimit, "km/h | Raw value:", adminSpeedLimit, "| Type:", typeof adminSpeedLimit);
+          } else {
+            finalSpeedLimit = ZONE_DEFAULT_SPEEDS[category] || DEFAULT_SPEED_LIMIT;
+            console.log("[OverspeedProvider] Zone", i, "-", category, "| Invalid admin limit, using DEFAULT:", finalSpeedLimit, "km/h");
+          }
+        } else {
+          finalSpeedLimit = ZONE_DEFAULT_SPEEDS[category] || DEFAULT_SPEED_LIMIT;
+          console.log("[OverspeedProvider] Zone", i, "-", category, "| NO ADMIN LIMIT, using DEFAULT:", finalSpeedLimit, "km/h");
+        }
+        
+        return {
+          id: s?.id ?? `slowdown_${i}`,
+          category: category,
+          location: s?.location,
+          radius: s?.radius ?? DEFAULT_ZONE_RADIUS,
+          speedLimit: finalSpeedLimit, // This is the properly parsed speed limit
+        };
+      });
+      
+      console.log("[OverspeedProvider] ✅ Processed slowdowns:", JSON.stringify(processedSlowdowns, null, 2));
+      return processedSlowdowns;
     } catch (error) {
       console.error("[OverspeedProvider] Failed to load branch slowdowns:", error);
       return [];
     }
   };
 
-  // ✅ FIXED: Haversine formula for accurate distance calculation
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371; // Earth's radius in kilometers
+    const R = 6371;
     const dLat = (lat2 - lat1) * (Math.PI / 180);
     const dLon = (lon2 - lon1) * (Math.PI / 180);
     const a =
@@ -421,7 +486,7 @@ export function OverspeedProvider({ children }) {
         Math.sin(dLon / 2) *
         Math.sin(dLon / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c; // Returns distance in kilometers
+    return R * c;
   };
 
   const calculateAverageSpeed = () => {
@@ -579,22 +644,18 @@ export function OverspeedProvider({ children }) {
             setSpeed(kmh);
             setLocation(newLocation);
 
-            // ✅ Track metrics ONLY when actively delivering
             if (isTrackingMetricsRef.current && shiftStartTimeRef.current) {
-              // ✅ FIXED: Update top speed correctly - always keep the highest value
               if (kmh > topSpeed) {
                 console.log("[Metrics] New top speed:", kmh, "km/h (previous:", topSpeed, "km/h)");
                 setTopSpeed(kmh);
               }
 
-              // ✅ Record speed reading for average calculation (only if moving)
               if (kmh > 0) {
                 speedReadingsRef.current.push(kmh);
                 const newAvg = calculateAverageSpeed();
                 setAvgSpeed(newAvg);
               }
 
-              // ✅ Calculate distance
               if (lastLocationRef.current) {
                 const distanceKm = calculateDistance(
                   lastLocationRef.current.latitude,
@@ -603,18 +664,14 @@ export function OverspeedProvider({ children }) {
                   newLocation.longitude
                 );
                 
-                // ✅ FIXED: More reasonable distance validation
-                // Accept distances between 1 meter and 500 meters per update (3 second intervals)
                 if (distanceKm > 0.001 && distanceKm < 0.5) {
                   setTotalDistance(prev => {
                     const newTotal = prev + distanceKm;
-                    console.log("[Metrics] Distance update: +", distanceKm.toFixed(3), "km, Total:", newTotal.toFixed(2), "km");
                     return newTotal;
                   });
                 } else if (distanceKm >= 0.5) {
                   console.warn("[Metrics] Suspicious large distance:", distanceKm.toFixed(3), "km - possible GPS jump, skipping");
                 }
-                // Distances < 1m are ignored to reduce noise
               }
 
               lastLocationRef.current = newLocation;
@@ -737,9 +794,12 @@ export function OverspeedProvider({ children }) {
                 prevViolationsCountRef.current = violationsArr.length;
               }
 
+              // ✅ CRITICAL: Load slowdowns with proper speed limits
               slowdownsRef.current = data?.branchId
                 ? await loadBranchSlowdowns(data.branchId)
                 : [];
+              
+              console.log("[OverspeedProvider] ✅ Slowdowns loaded into ref:", slowdownsRef.current.length);
 
               if (trackingAllowedRef.current && !locationSubRef.current) {
                 console.log("[OverspeedProvider] Starting location tracking...");
