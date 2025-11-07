@@ -172,10 +172,10 @@ export default function DriverDashboard() {
         </View>
         <View style={styles.detailRow}>
           <Text style={styles.label}>Address:</Text>
-          <Text style={styles.value} numberOfLines={1} ellipsizeMode="tail">
-            {next.street || next.barangay || next.municipality
-              ? `${next.street ? next.street + ", " : ""}${next.barangay}, ${next.municipality}, ${next.province}`
-              : next.address || "-"}
+          <Text style={styles.value}>
+            {next.street
+              ? `${next.street}, ${next.barangay}, ${next.municipality}`
+              : next.address}
           </Text>
         </View>
         <View style={styles.detailRow}>
