@@ -37,7 +37,6 @@ export default function Home() {
   const { width: screenWidth } = Dimensions.get("window");
   const user = auth.currentUser;
 
-  // Use the shared speed tracking from OverspeedProvider
   const {
     speed,
     location,
@@ -46,9 +45,9 @@ export default function Home() {
     getShiftMetrics,
     topSpeed,
     totalDistance,
+    avgSpeed,
   } = useOverspeed();
 
-  // Initial load (user + parcels)
   useEffect(() => {
     const init = async () => {
       if (!user) return;
@@ -73,7 +72,6 @@ export default function Home() {
     init();
   }, [user]);
 
-  // Subscribe to live user doc
   useEffect(() => {
     if (!user) return;
     const ref = doc(db, "users", user.uid);
@@ -128,24 +126,27 @@ export default function Home() {
   };
 
   const handleStartShift = async () => {
+    console.log("[Home] Starting shift - resetting metrics");
     resetDrivingMetrics();
     await updateStatus("Available");
     await fetchParcels({ ...userData, status: "Available" });
   };
 
-const handleStartDelivering = async () => {
-  // Make sure we have a location before initializing
-  if (!location) {
-    alert("Waiting for GPS location. Please try again in a moment.");
-    return;
-  }
-  
-  // Initialize tracking metrics using the provider
-  initializeShiftMetrics(location);
-  console.log("[Home] Shift metrics initialized with location:", location);
-  
-  await updateStatus("Delivering");
-};
+  const handleStartDelivering = async () => {
+    if (!location) {
+      Alert.alert(
+        "Location Required",
+        "Waiting for GPS location. Please try again in a moment.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+    
+    console.log("[Home] Starting delivery - initializing metrics with location:", location);
+    initializeShiftMetrics(location);
+    
+    await updateStatus("Delivering");
+  };
 
   const handleEndShift = async () => {
     if (!user) return;
@@ -153,38 +154,45 @@ const handleStartDelivering = async () => {
     try {
       setButtonLoading(true);
 
-      // Get final metrics
+      // ✅ Get final metrics from provider
       const metrics = getShiftMetrics();
-      const { durationMinutes, avgSpeed, topSpeed: topSpd, distance } = metrics;
+      const { durationMinutes, avgSpeed: finalAvgSpeed, topSpeed: finalTopSpeed, distance } = metrics;
 
-      // Log for debugging
-      console.log("[Home] Final shift metrics:", metrics);
+      console.log("[Home] Ending shift - Final metrics:", metrics);
 
-      // Validate that we actually have data
-      if (durationMinutes === 0 && distance === 0 && topSpd === 0) {
-        const proceed = await new Promise((resolve) => {
-          Alert.alert(
-            "No Data Recorded",
-            "No driving data was recorded during this shift. This might happen if GPS tracking was unavailable. End shift anyway?",
-            [
-              { text: "Cancel", onPress: () => resolve(false), style: "cancel" },
-              { text: "End Anyway", onPress: () => resolve(true) }
-            ]
-          );
-        });
-        
-        if (!proceed) {
-          setButtonLoading(false);
-          return;
-        }
+      // ✅ FIXED: Prevent saving if ALL values are 0 or meaningless
+      // Check if we have any meaningful data
+      const hasValidData = durationMinutes > 0 || distance > 0.01 || finalTopSpeed > 0;
+
+      if (!hasValidData) {
+        Alert.alert(
+          "No Data Recorded",
+          "No driving data was recorded during this shift. The shift will be cancelled without saving history.",
+          [
+            { 
+              text: "OK", 
+              onPress: async () => {
+                // Just change status to offline without saving history
+                await updateDoc(doc(db, "users", user.uid), {
+                  status: "Offline",
+                });
+                resetDrivingMetrics();
+                setDeliveries([]);
+                setNextDelivery(null);
+                setButtonLoading(false);
+              }
+            }
+          ]
+        );
+        return;
       }
 
-      // Create driving history entry
+      // ✅ Create driving history entry with validated data
       const drivingHistory = {
         message: "Shift completed",
         issuedAt: Timestamp.now(),
-        avgSpeed: Math.round(avgSpeed) || 0,
-        topSpeed: Math.round(topSpd) || 0,
+        avgSpeed: Math.round(finalAvgSpeed) || 0,
+        topSpeed: Math.round(finalTopSpeed) || 0,
         distance: parseFloat(distance.toFixed(2)) || 0,
         time: durationMinutes || 0,
         driverLocation: location
@@ -210,13 +218,17 @@ const handleStartDelivering = async () => {
 
       Alert.alert(
         "Shift Ended",
-        `Shift completed!\n\nDuration: ${durationMinutes} min\nDistance: ${distance.toFixed(1)} km\nTop Speed: ${topSpd} km/h`,
+        `Shift completed successfully!\n\nDuration: ${durationMinutes} min\nDistance: ${distance.toFixed(1)} km\nTop Speed: ${finalTopSpeed} km/h\nAvg Speed: ${Math.round(finalAvgSpeed)} km/h`,
         [{ text: "OK" }]
       );
 
     } catch (err) {
       console.error("Failed to end shift:", err);
-      alert("Failed to save shift data. Please try again.");
+      Alert.alert(
+        "Error",
+        "Failed to save shift data. Please try again.",
+        [{ text: "OK" }]
+      );
     } finally {
       setButtonLoading(false);
     }
@@ -224,19 +236,34 @@ const handleStartDelivering = async () => {
 
   const handleCancelShift = async () => {
     if (!user) return;
-    try {
-      setButtonLoading(true);
-      await updateDoc(doc(db, "users", user.uid), {
-        status: "Offline",
-      });
-      setDeliveries([]);
-      setNextDelivery(null);
-      resetDrivingMetrics();
-    } catch (err) {
-      console.error("Failed to cancel shift:", err);
-    } finally {
-      setButtonLoading(false);
-    }
+    
+    Alert.alert(
+      "Cancel Shift",
+      "Are you sure you want to cancel your shift? All tracking data will be lost.",
+      [
+        { text: "No", style: "cancel" },
+        {
+          text: "Yes, Cancel",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setButtonLoading(true);
+              await updateDoc(doc(db, "users", user.uid), {
+                status: "Offline",
+              });
+              setDeliveries([]);
+              setNextDelivery(null);
+              resetDrivingMetrics();
+              console.log("[Home] Shift cancelled");
+            } catch (err) {
+              console.error("Failed to cancel shift:", err);
+            } finally {
+              setButtonLoading(false);
+            }
+          }
+        }
+      ]
+    );
   };
 
   if (loading)
@@ -315,7 +342,7 @@ const handleStartDelivering = async () => {
                 {buttonLoading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.cancelText}>Cancel</Text>
+                  <Text style={styles.cancelText}>Cancel Shift</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -341,16 +368,16 @@ const handleStartDelivering = async () => {
                   },
                 ]}
               >
-                <Text style={styles.speedValue}>{speed}</Text>
+                <Text style={styles.speedValue}>{Math.round(speed)}</Text>
                 <Text style={styles.speedUnit}>km/h</Text>
               </View>
 
-              {/* Driving Metrics Display */}
+              {/* ✅ Real-time metrics display */}
               <View style={styles.metricsContainer}>
                 <View style={styles.metricItem}>
                   <Text style={styles.metricLabel}>Distance</Text>
                   <Text style={styles.metricValue}>
-                    {totalDistance.toFixed(1)} km
+                    {totalDistance.toFixed(2)} km
                   </Text>
                 </View>
                 <View style={styles.metricItem}>
@@ -360,7 +387,7 @@ const handleStartDelivering = async () => {
                 <View style={styles.metricItem}>
                   <Text style={styles.metricLabel}>Avg Speed</Text>
                   <Text style={styles.metricValue}>
-                    {getShiftMetrics().avgSpeed} km/h
+                    {avgSpeed} km/h
                   </Text>
                 </View>
               </View>
@@ -472,6 +499,8 @@ const styles = StyleSheet.create({
     color: "#666",
     fontStyle: "italic",
     marginTop: 4,
+    marginBottom: 12,
+    textAlign: "center",
   },
   speedCircle: {
     borderWidth: 6,

@@ -42,13 +42,25 @@ function bearingBetween(a, b) {
   if (deg < 0) deg += 360;
   return deg;
 }
+
 function smoothHeading(prevDeg, nextDeg) {
   if (!Number.isFinite(prevDeg)) return nextDeg;
   const diff = ((nextDeg - prevDeg + 540) % 360) - 180;
   return (prevDeg + diff * 0.25 + 360) % 360;
 }
-const metersBetween = (a, b) =>
-  haversine({ lat: a.latitude, lon: a.longitude }, { lat: b.latitude, lon: b.longitude });
+
+// ✅ Fixed: Use consistent coordinate format
+const metersBetween = (a, b) => {
+  try {
+    return haversine(
+      { lat: a.latitude, lon: a.longitude },
+      { lat: b.latitude, lon: b.longitude }
+    );
+  } catch (e) {
+    console.error("[metersBetween] Error:", e);
+    return 0;
+  }
+};
 
 export default function Map({ user: passedUser }) {
   console.log("[Map] rendering (provider-integrated)");
@@ -58,14 +70,13 @@ export default function Map({ user: passedUser }) {
     location: provLocation,
     activeSlowdown,
     showSlowdownWarning,
-    // slowdowns (optional) if you want to use provider's list
     slowdowns: providerSlowdowns,
   } = useOverspeed();
 
   const [user, setUser] = useState(passedUser || null);
   const [userData, setUserData] = useState(null);
   const [parcels, setParcels] = useState([]);
-  const [slowdowns, setSlowdowns] = useState([]); // map's local hazard list (branch zones)
+  const [slowdowns, setSlowdowns] = useState([]);
   const [etaMinutes, setEtaMinutes] = useState(null);
   const [distanceKm, setDistanceKm] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -74,9 +85,6 @@ export default function Map({ user: passedUser }) {
   const [parcelsLoaded, setParcelsLoaded] = useState(false);
   const [slowdownsLoaded, setSlowdownsLoaded] = useState(false);
   const [routeReady, setRouteReady] = useState(true);
-
-
-  // heading state computed inside map (provider doesn't send heading)
   const [headingDeg, setHeadingDeg] = useState(0);
 
   const mapRef = useRef(null);
@@ -107,7 +115,7 @@ export default function Map({ user: passedUser }) {
     return unsub;
   }, [user]);
 
-  // Load parcels (same as before)
+  // Load parcels
   const loadAllParcels = async () => {
     console.log("[Map] Loading parcels...");
     if (!user) return [];
@@ -160,7 +168,7 @@ export default function Map({ user: passedUser }) {
     }
   };
 
-  // Load everything (user doc -> slowdowns + parcels)
+  // Load everything
   const loadEverything = async () => {
     if (!user) return;
     console.log("[Map] Loading everything...");
@@ -180,8 +188,9 @@ export default function Map({ user: passedUser }) {
         allSlowdowns = allSlowdowns.concat(branch);
       }
 
-      // optionally prefer provider's slowdowns if present
+      // ✅ Prefer provider's slowdowns if available (already loaded in provider)
       if (Array.isArray(providerSlowdowns) && providerSlowdowns.length > 0) {
+        console.log("[Map] Using provider slowdowns:", providerSlowdowns.length);
         allSlowdowns = providerSlowdowns;
       }
 
@@ -204,7 +213,7 @@ export default function Map({ user: passedUser }) {
     if (user) loadEverything();
   }, [user, providerSlowdowns]);
 
-  // compute heading/course when provider location updates
+  // ✅ Compute heading/course when provider location updates
   useEffect(() => {
     if (!provLocation) return;
     try {
@@ -253,11 +262,13 @@ export default function Map({ user: passedUser }) {
       /* ignore */
     }
   };
+  
   const beginGesture = async () => {
     gestureActiveRef.current = true;
     if (gestureTimerRef.current) clearTimeout(gestureTimerRef.current);
     await saveCameraState();
   };
+  
   const endGestureSoon = async () => {
     if (gestureTimerRef.current) clearTimeout(gestureTimerRef.current);
     await saveCameraState();
@@ -297,7 +308,6 @@ export default function Map({ user: passedUser }) {
 
   useEffect(() => {
     if (mapReady && slowdownsLoaded && parcelsLoaded && (!needsRoute || routeReady)) {
-      // small delay for nicer UX
       setTimeout(() => {}, 50);
     }
   }, [mapReady, slowdownsLoaded, parcelsLoaded, routeReady, needsRoute]);
@@ -307,7 +317,9 @@ export default function Map({ user: passedUser }) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#00b2e1" />
-        <Text style={{ marginTop: 15 }}>{loading ? "Loading map data..." : "Waiting for location..."}</Text>
+        <Text style={{ marginTop: 15 }}>
+          {loading ? "Loading map data..." : "Waiting for location..."}
+        </Text>
       </View>
     );
   }
@@ -320,23 +332,26 @@ export default function Map({ user: passedUser }) {
   const waypoints = destinations.slice(0, -1);
   const finalDestination = destinations.length > 0 ? destinations[destinations.length - 1] : null;
 
+  // ✅ Get effective speed limit from active slowdown zone or default
   const effectiveLimit = activeSlowdown?.speedLimit ?? DEFAULT_SPEED_LIMIT;
 
   return (
     <View style={styles.container}>
-      {/* slowdown banner restored (driven by provider) */}
+      {/* ✅ Fixed: Slowdown banner with better positioning */}
       {showSlowdownWarning && activeSlowdown && (
         <View style={styles.slowdownAlert}>
           <Ionicons name="warning" size={22} color="#ffcc00" />
           <Text style={styles.slowdownText}>
-            Slow down! Approaching {activeSlowdown.category?.toLowerCase() || "hazard"} zone.
+            Slow down! {activeSlowdown.category || "Hazard"} zone - {activeSlowdown.speedLimit || DEFAULT_SPEED_LIMIT} km/h
           </Text>
         </View>
       )}
 
       {etaMinutes != null && distanceKm != null && (
         <View style={[styles.etaPanel, { backgroundColor: getETAColor() }]}>
-          <Text style={styles.etaText}>{etaMinutes} min • {distanceKm.toFixed(1)} km</Text>
+          <Text style={styles.etaText}>
+            {etaMinutes} min • {distanceKm.toFixed(1)} km
+          </Text>
           <Text style={styles.etaSubText}>Optimized Route</Text>
         </View>
       )}
@@ -361,14 +376,24 @@ export default function Map({ user: passedUser }) {
           if (details?.isGesture) endGestureSoon();
         }}
       >
+        {/* User location marker with direction */}
         <Marker
-          coordinate={{ latitude: provLocation.latitude, longitude: provLocation.longitude }}
+          coordinate={{
+            latitude: provLocation.latitude,
+            longitude: provLocation.longitude,
+          }}
           anchor={{ x: 0.5, y: 0.5 }}
           flat
           zIndex={9999}
         >
           <View style={styles.puck}>
-            <View style={{ transform: [{ rotate: `${Number.isFinite(headingDeg) ? headingDeg : 0}deg` }] }}>
+            <View
+              style={{
+                transform: [
+                  { rotate: `${Number.isFinite(headingDeg) ? headingDeg : 0}deg` },
+                ],
+              }}
+            >
               <Svg width={22} height={22} viewBox="0 0 24 24">
                 <Polygon points="12,2 5,22 12,18 19,22" fill="#00b2e1" />
               </Svg>
@@ -376,6 +401,7 @@ export default function Map({ user: passedUser }) {
           </View>
         </Marker>
 
+        {/* Slowdown zones */}
         {slowdowns.map((s, i) =>
           s.location?.lat && s.location?.lng ? (
             <Circle
@@ -389,13 +415,25 @@ export default function Map({ user: passedUser }) {
           ) : null
         )}
 
-        {userData?.status === "Delivering" && destinations.length > 0 && !!GOOGLE_MAPS_APIKEY && finalDestination ? (
+        {/* Route and destination markers */}
+        {userData?.status === "Delivering" &&
+          destinations.length > 0 &&
+          !!GOOGLE_MAPS_APIKEY &&
+          finalDestination ? (
           <>
             {destinations.map((d, i) => (
-              <Marker key={`dest-${i}`} coordinate={d} title={`Stop ${i + 1}`} pinColor={i === destinations.length - 1 ? "orange" : "dodgerblue"} />
+              <Marker
+                key={`dest-${i}`}
+                coordinate={d}
+                title={`Stop ${i + 1}`}
+                pinColor={i === destinations.length - 1 ? "orange" : "dodgerblue"}
+              />
             ))}
             <MapViewDirections
-              origin={{ latitude: provLocation.latitude, longitude: provLocation.longitude }}
+              origin={{
+                latitude: provLocation.latitude,
+                longitude: provLocation.longitude,
+              }}
               destination={finalDestination}
               waypoints={waypoints.length > 0 ? waypoints : undefined}
               apikey={GOOGLE_MAPS_APIKEY}
@@ -406,7 +444,11 @@ export default function Map({ user: passedUser }) {
               onStart={() => setRouteReady(false)}
               onReady={(result) => {
                 try {
-                  if (!routeFitDoneRef.current && mapRef.current && result?.coordinates?.length > 0) {
+                  if (
+                    !routeFitDoneRef.current &&
+                    mapRef.current &&
+                    result?.coordinates?.length > 0
+                  ) {
                     routeFitDoneRef.current = true;
                     mapRef.current.fitToCoordinates(result.coordinates, {
                       edgePadding: { top: 80, right: 50, bottom: 120, left: 50 },
@@ -438,41 +480,75 @@ export default function Map({ user: passedUser }) {
         </View>
       )}
 
+      {/* Follow button */}
       <View style={styles.followBtn}>
         <TouchableOpacity
-          style={[styles.followInner, followPuck ? styles.followOn : styles.followOff]}
+          style={[
+            styles.followInner,
+            followPuck ? styles.followOn : styles.followOff,
+          ]}
           onPress={async () => {
             const next = !followPuck;
             setFollowPuck(next);
             if (next) {
-              // center immediately
               try {
-                await mapRef.current?.animateCamera?.({
-                  center: { latitude: provLocation.latitude, longitude: provLocation.longitude },
-                  heading: headingDeg,
-                  pitch: userPitchRef.current,
-                  zoom: userZoomRef.current,
-                }, { duration: 500 });
+                await mapRef.current?.animateCamera?.(
+                  {
+                    center: {
+                      latitude: provLocation.latitude,
+                      longitude: provLocation.longitude,
+                    },
+                    heading: headingDeg,
+                    pitch: userPitchRef.current,
+                    zoom: userZoomRef.current,
+                  },
+                  { duration: 500 }
+                );
               } catch {}
             }
           }}
           activeOpacity={0.85}
         >
-          <Ionicons name={followPuck ? "navigate" : "navigate-outline"} size={18} color={followPuck ? "#fff" : "#0064b5"} style={{ marginRight: 6 }} />
-          <Text style={[styles.followText, followPuck ? { color: "#fff" } : { color: "#0064b5" }]}>{followPuck ? "Follow: ON" : "Follow: OFF"}</Text>
+          <Ionicons
+            name={followPuck ? "navigate" : "navigate-outline"}
+            size={18}
+            color={followPuck ? "#fff" : "#0064b5"}
+            style={{ marginRight: 6 }}
+          />
+          <Text
+            style={[
+              styles.followText,
+              followPuck ? { color: "#fff" } : { color: "#0064b5" },
+            ]}
+          >
+            {followPuck ? "Follow: ON" : "Follow: OFF"}
+          </Text>
         </TouchableOpacity>
       </View>
 
+      {/* Info panel */}
       <View style={styles.infoPanel}>
         <View style={styles.row}>
           <View style={styles.infoCard}>
             <Text style={styles.label}>Speed Limit</Text>
-            <Text style={[styles.infoValue, { color: "#f21b3f" }]}>{effectiveLimit}</Text>
+            <Text style={[styles.infoValue, { color: "#f21b3f" }]}>
+              {effectiveLimit}
+            </Text>
             <Text style={styles.unit}>km/h</Text>
           </View>
           <View style={styles.infoCard}>
             <Text style={styles.label}>Current Speed</Text>
-            <Text style={[styles.infoValue, { color: effectiveLimit > 0 && speed > effectiveLimit ? "#f21b3f" : "#29bf12" }]}>
+            <Text
+              style={[
+                styles.infoValue,
+                {
+                  color:
+                    effectiveLimit > 0 && speed > effectiveLimit
+                      ? "#f21b3f"
+                      : "#29bf12",
+                },
+              ]}
+            >
               {Math.round(speed)}
             </Text>
             <Text style={styles.unit}>km/h</Text>
@@ -502,15 +578,15 @@ export default function Map({ user: passedUser }) {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1
+    flex: 1,
   },
   map: {
-    flex: 1
+    flex: 1,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
-    alignItems: "center"
+    alignItems: "center",
   },
   preparingOverlay: {
     position: "absolute",
@@ -527,11 +603,11 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 16,
     fontWeight: "600",
-    color: "#2c3e50"
+    color: "#2c3e50",
   },
   etaPanel: {
     position: "absolute",
-    top: 40,
+    top: 60,
     alignSelf: "center",
     paddingVertical: 10,
     paddingHorizontal: 20,
@@ -544,12 +620,12 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 20,
     fontWeight: "bold",
-    textAlign: "center"
+    textAlign: "center",
   },
   etaSubText: {
     color: "#e3f2fd",
     fontSize: 14,
-    textAlign: "center"
+    textAlign: "center",
   },
   puck: {
     backgroundColor: "#fff",
@@ -567,7 +643,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     bottom: 220,
     right: 12,
-    zIndex: 20
+    zIndex: 20,
   },
   followInner: {
     flexDirection: "row",
@@ -581,15 +657,15 @@ const styles = StyleSheet.create({
   },
   followOn: {
     backgroundColor: "#0064b5",
-    borderColor: "#0064b5"
+    borderColor: "#0064b5",
   },
   followOff: {
     backgroundColor: "#fff",
-    borderColor: "#0064b5"
+    borderColor: "#0064b5",
   },
   followText: {
     fontSize: 13,
-    fontWeight: "600"
+    fontWeight: "600",
   },
   infoPanel: {
     position: "absolute",
@@ -608,24 +684,24 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     justifyContent: "space-around",
-    marginBottom: 12
+    marginBottom: 12,
   },
   infoCard: {
     alignItems: "center",
-    flex: 1
+    flex: 1,
   },
   label: {
     fontSize: 14,
     color: "#777",
-    marginBottom: 4
+    marginBottom: 4,
   },
   infoValue: {
     fontSize: 24,
-    fontWeight: "bold"
+    fontWeight: "bold",
   },
   unit: {
     fontSize: 12,
-    color: "#555"
+    color: "#555",
   },
   warningBox: {
     flexDirection: "row",
@@ -639,8 +715,9 @@ const styles = StyleSheet.create({
     color: "#f21b3f",
     fontWeight: "600",
     fontSize: 14,
-    marginLeft: 8
+    marginLeft: 8,
   },
+  // ✅ Fixed: Better positioning to avoid overlap with ETA panel
   slowdownAlert: {
     position: "absolute",
     top: 20,
@@ -650,7 +727,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: 6,
     borderLeftColor: "#ffcc00",
     borderRadius: 12,
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
@@ -666,7 +743,7 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 8,
     color: "#856404",
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "600",
     textAlign: "center",
   },
