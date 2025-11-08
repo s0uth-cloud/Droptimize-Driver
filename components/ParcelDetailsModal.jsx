@@ -52,7 +52,7 @@ export default function ParcelDetailsModal({ visible, parcel, onClose, onUpdateS
               <Text style={styles.value}>{parcel.reference}</Text>
 
               <Text style={styles.label}>Package ID</Text>
-              <Text style={styles.value}>{parcel.packageId}</Text>
+              <Text style={styles.value}>{parcel.parcelId}</Text>
 
               <Text style={styles.label}>Assigned At</Text>
               <Text style={styles.value}>
@@ -102,8 +102,8 @@ export default function ParcelDetailsModal({ visible, parcel, onClose, onUpdateS
               ]}
               disabled={!hasChanged}
               onPress={() => {
-                if (status && parcel?.ParcelID && hasChanged) {
-                  onUpdateStatus(parcel.ParcelID, status);
+                if (status && parcel?.parcelId && hasChanged) {
+                  onUpdateStatus(parcel.parcelId, status);
                 }
                 setOpen(false);
                 onClose();

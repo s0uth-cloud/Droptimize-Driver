@@ -1,6 +1,8 @@
 import * as Location from "expo-location";
+import * as Notifications from "expo-notifications";
 import { usePathname } from "expo-router";
 import * as Speech from "expo-speech";
+import * as TaskManager from "expo-task-manager";
 import { onAuthStateChanged } from "firebase/auth";
 import {
   arrayUnion,
@@ -13,8 +15,26 @@ import {
 } from "firebase/firestore";
 import haversine from "haversine-distance";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { Alert } from "react-native";
+import { Alert, AppState } from "react-native";
 import { auth, db } from "../firebaseConfig";
+import {
+  clearShiftMetrics,
+  clearShiftState,
+  loadShiftMetrics,
+  loadShiftState,
+  saveLastLocation,
+  saveShiftMetrics,
+  saveShiftState,
+} from "../services/storageService";
+
+// Configure notification handler
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
 
 const OverspeedContext = createContext();
 
@@ -31,7 +51,7 @@ const DEFAULT_ZONE_RADIUS = 15;
 const VIOLATION_COOLDOWN_MS = 60000;
 const MIN_SPEED_FOR_VIOLATION = 10;
 const OVERSPEED_GRACE_PERIOD_MS = 10000;
-const correctionFactor = 1.12;
+const SPEED_CORRECTION_FACTOR = 1.12;
 
 // ✅ Fallback speed limits only used if admin didn't set one
 const ZONE_DEFAULT_SPEEDS = {
@@ -44,6 +64,241 @@ const ZONE_DEFAULT_SPEEDS = {
   Slowdown: 40,
   Default: DEFAULT_SPEED_LIMIT,
 };
+
+// Background location task name
+const BACKGROUND_LOCATION_TASK = "background-location-task";
+
+// Helper function to calculate distance between two coordinates in kilometers
+const calculateDistanceInKm = (lat1, lon1, lat2, lon2) => {
+  const R = 6371; // Earth's radius in km
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * (Math.PI / 180)) *
+      Math.cos(lat2 * (Math.PI / 180)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
+
+// Helper function to check if coordinate is in slowdown zone
+const checkActiveZone = (coord, slowdowns) => {
+  if (!coord || !slowdowns || slowdowns.length === 0) return null;
+  
+  for (const zone of slowdowns) {
+    const lat = zone?.location?.lat;
+    const lng = zone?.location?.lng;
+    if (typeof lat !== "number" || typeof lng !== "number") continue;
+    
+    const distanceKm = calculateDistanceInKm(coord.latitude, coord.longitude, lat, lng);
+    const distanceMeters = distanceKm * 1000;
+    const radius = Number(zone?.radius) > 0 ? Number(zone.radius) : DEFAULT_ZONE_RADIUS;
+    
+    if (distanceMeters <= radius) {
+      return {
+        id: zone.id,
+        category: zone.category || "Default",
+        speedLimit: zone.speedLimit || ZONE_DEFAULT_SPEEDS[zone.category] || DEFAULT_SPEED_LIMIT,
+        radius: radius,
+      };
+    }
+  }
+  return null;
+};
+
+// Define background location task with full tracking
+TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
+  if (error) {
+    console.error("[Background] Location task error:", error);
+    return;
+  }
+  
+  if (data) {
+    const { locations } = data;
+    if (locations && locations.length > 0) {
+      const location = locations[0];
+      const coords = location.coords;
+      
+      console.log("[Background] Location update:", coords.latitude, coords.longitude, "Speed:", coords.speed);
+      
+      try {
+        // Calculate speed in km/h
+        let speedKmh = 0;
+        if (coords.speed && coords.speed > 0) {
+          speedKmh = Math.round(coords.speed * 3.6 * SPEED_CORRECTION_FACTOR);
+        }
+        
+        // Load saved metrics and state
+        const savedMetrics = await loadShiftMetrics();
+        const savedState = await loadShiftState();
+        
+        if (!savedState?.isActive) {
+          console.log("[Background] Shift not active, skipping tracking");
+          return;
+        }
+        
+        // Get user auth state
+        const user = auth.currentUser;
+        if (!user) {
+          console.log("[Background] No authenticated user");
+          return;
+        }
+        
+        // Load user data to check status and slowdowns
+        const userRef = doc(db, "users", user.uid);
+        const userSnap = await getDoc(userRef);
+        
+        if (!userSnap.exists()) {
+          console.log("[Background] User document not found");
+          return;
+        }
+        
+        const userData = userSnap.data();
+        if (userData.status !== "Delivering") {
+          console.log("[Background] User not in Delivering status");
+          return;
+        }
+        
+        // Load slowdowns for zone checking
+        let slowdowns = [];
+        if (userData.branchId) {
+          const branchRef = doc(db, "branches", userData.branchId);
+          const branchSnap = await getDoc(branchRef);
+          if (branchSnap.exists()) {
+            slowdowns = branchSnap.data()?.slowdowns || [];
+          }
+        }
+        
+        // Check for slowdown zones
+        const zone = checkActiveZone({ latitude: coords.latitude, longitude: coords.longitude }, slowdowns);
+        const speedLimit = zone?.speedLimit || DEFAULT_SPEED_LIMIT;
+        
+        // Check for overspeeding
+        if (speedKmh > speedLimit + 3 && speedKmh > MIN_SPEED_FOR_VIOLATION) {
+          console.warn("[Background] ⚠️ OVERSPEED DETECTED - Speed:", speedKmh, "Limit:", speedLimit);
+          
+          // Send notification alert
+          await Notifications.scheduleNotificationAsync({
+            content: {
+              title: "⚠️ Speeding Violation",
+              body: `You're going ${speedKmh} km/h in a ${speedLimit} km/h zone!`,
+              sound: true,
+              priority: Notifications.AndroidNotificationPriority.HIGH,
+              vibrate: [0, 250, 250, 250],
+            },
+            trigger: null, // Send immediately
+          });
+          
+          // Log violation to Firestore
+          const violationPayload = {
+            message: "Speeding violation (Background)",
+            confirmed: false,
+            issuedAt: Timestamp.now(),
+            driverLocation: {
+              latitude: coords.latitude,
+              longitude: coords.longitude,
+            },
+            topSpeed: speedKmh,
+            avgSpeed: speedKmh,
+            distance: 0,
+            time: 0,
+            zoneId: zone?.id ?? null,
+            zoneCategory: zone?.category ?? "Default",
+            zoneLimit: zone?.speedLimit ?? null,
+            defaultLimit: DEFAULT_SPEED_LIMIT,
+          };
+          
+          await updateDoc(userRef, { 
+            violations: arrayUnion(violationPayload),
+            location: {
+              latitude: coords.latitude,
+              longitude: coords.longitude,
+              speedKmh: speedKmh,
+            },
+            lastLocationAt: serverTimestamp(),
+          });
+          
+          console.log("[Background] Violation logged and notification sent");
+        }
+        
+        // Update metrics
+        if (savedMetrics) {
+          let newTopSpeed = savedMetrics.topSpeed || 0;
+          let newTotalDistance = savedMetrics.totalDistance || 0;
+          const speedReadings = savedMetrics.speedReadings || [];
+          
+          // Update top speed
+          if (speedKmh > newTopSpeed) {
+            newTopSpeed = speedKmh;
+            console.log("[Background] New top speed:", newTopSpeed);
+          }
+          
+          // Update speed readings
+          if (speedKmh > 0) {
+            speedReadings.push(speedKmh);
+          }
+          
+          // Calculate distance
+          if (savedMetrics.lastLocationCoords) {
+            const distanceKm = calculateDistanceInKm(
+              savedMetrics.lastLocationCoords.latitude,
+              savedMetrics.lastLocationCoords.longitude,
+              coords.latitude,
+              coords.longitude
+            );
+            
+            if (distanceKm > 0.001 && distanceKm < 0.5) {
+              newTotalDistance += distanceKm;
+              console.log("[Background] Distance updated:", newTotalDistance.toFixed(3), "km");
+            }
+          }
+          
+          // Calculate average speed
+          const avgSpeed = speedReadings.length > 0
+            ? Math.round(speedReadings.reduce((a, b) => a + b, 0) / speedReadings.length)
+            : 0;
+          
+          // Save updated metrics
+          await saveShiftMetrics({
+            topSpeed: newTopSpeed,
+            totalDistance: newTotalDistance,
+            avgSpeed: avgSpeed,
+            shiftStartTime: savedMetrics.shiftStartTime,
+            speedReadings: speedReadings,
+            lastLocationCoords: {
+              latitude: coords.latitude,
+              longitude: coords.longitude,
+            },
+          });
+          
+          console.log("[Background] Metrics updated - Distance:", newTotalDistance.toFixed(2), "km, Top:", newTopSpeed, "km/h, Avg:", avgSpeed, "km/h");
+        }
+        
+        // Update location in Firestore
+        await updateDoc(userRef, {
+          location: {
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+            speedKmh: speedKmh,
+          },
+          lastLocationAt: serverTimestamp(),
+        });
+        
+        // Save location to storage for when app reopens
+        await saveLastLocation({
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          timestamp: location.timestamp,
+        });
+        
+      } catch (error) {
+        console.error("[Background] Task processing error:", error);
+      }
+    }
+  }
+});
 
 export function OverspeedProvider({ children }) {
   console.log("[OverspeedProvider] Initializing");
@@ -91,6 +346,17 @@ export function OverspeedProvider({ children }) {
         console.log("[TTS] Voices loaded:", voices.length);
       })
       .catch((err) => console.warn("[TTS] Voice load error:", err));
+    
+    // Request notification permissions
+    Notifications.requestPermissionsAsync()
+      .then(({ status }) => {
+        if (status === 'granted') {
+          console.log("[Notifications] Permission granted");
+        } else {
+          console.warn("[Notifications] Permission denied");
+        }
+      })
+      .catch((err) => console.warn("[Notifications] Permission request error:", err));
   }, []);
 
   async function safeSpeak(message, options = {}) {
@@ -137,7 +403,7 @@ export function OverspeedProvider({ children }) {
     }
   }, [onLogin, pathname]);
 
-  const stopLocationWatch = () => {
+  const stopLocationWatch = async () => {
     if (locationSubRef.current) {
       try {
         console.log("[OverspeedProvider] Stopping location watch");
@@ -147,21 +413,32 @@ export function OverspeedProvider({ children }) {
       }
       locationSubRef.current = null;
     }
+    
+    // Stop background location updates
+    try {
+      const isTaskRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
+      if (isTaskRegistered) {
+        await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+        console.log("[OverspeedProvider] Background location updates stopped");
+      }
+    } catch (error) {
+      console.error("[OverspeedProvider] Error stopping background location:", error);
+    }
   };
 
-  const metersBetween = (a, b) => {
+  const calculateDistanceMeters = (coordA, coordB) => {
     try {
       return haversine(
-        { lat: a.latitude, lon: a.longitude },
-        { lat: b.latitude, lon: b.longitude }
+        { lat: coordA.latitude, lon: coordA.longitude },
+        { lat: coordB.latitude, lon: coordB.longitude }
       );
     } catch (e) {
-      console.error("[metersBetween] Error:", e);
+      console.error("[calculateDistanceMeters] Error:", e);
       return 0;
     }
   };
 
-  const calcSpeedKmh = (pos) => {
+  const calculateSpeedKmh = (pos) => {
     const gps = Number.isFinite(pos?.coords?.speed) && pos.coords.speed > 0
       ? pos.coords.speed * 3.6
       : NaN;
@@ -176,7 +453,7 @@ export function OverspeedProvider({ children }) {
           longitude: pos.coords.longitude
         };
         
-        const d = metersBetween(prev.coord, currentCoord);
+        const d = calculateDistanceMeters(prev.coord, currentCoord);
         const dt = Math.max(1, ((pos.timestamp || Date.now()) - prev.ts) / 1000);
         
         if (d > 0 && dt > 0) {
@@ -197,7 +474,7 @@ export function OverspeedProvider({ children }) {
 
     let kmh = 0;
     if (Number.isFinite(gps) && gps < 200) {
-      kmh = Math.round(gps * correctionFactor);
+      kmh = Math.round(gps * SPEED_CORRECTION_FACTOR);
     } else if (Number.isFinite(derived) && derived < 200) {
       kmh = Math.round(derived);
     }
@@ -207,8 +484,8 @@ export function OverspeedProvider({ children }) {
     return finalSpeed;
   };
 
-  // ✅ CRITICAL FIX: Properly read speed limits from ALL zone types
-  const activeZoneFor = (coord) => {
+  // Check if coordinate is within an active slowdown zone
+  const checkActiveZoneWithDetails = (coord) => {
     if (!coord || typeof coord.latitude !== 'number' || typeof coord.longitude !== 'number') {
       return null;
     }
@@ -276,7 +553,7 @@ export function OverspeedProvider({ children }) {
         return;
       }
 
-      const zone = activeZoneFor(coord);
+      const zone = checkActiveZoneWithDetails(coord);
       const limit = zone?.speedLimit || DEFAULT_SPEED_LIMIT;
       
       const overspeedBuffer = 3;
@@ -416,14 +693,14 @@ export function OverspeedProvider({ children }) {
       }
       
       if (!alertsEnabledRef.current) {
-        const zone = activeZoneFor(coord);
+        const zone = checkActiveZoneWithDetails(coord);
         currentSlowdownRef.current = zone?.id ?? null;
         setActiveSlowdown(zone ?? null);
         setShowSlowdownWarning(Boolean(zone));
         return;
       }
 
-      const zone = activeZoneFor(coord);
+      const zone = checkActiveZoneWithDetails(coord);
       const newZoneId = zone?.id ?? null;
       const prevZoneId = currentSlowdownRef.current;
 
@@ -529,20 +806,6 @@ export function OverspeedProvider({ children }) {
     }
   };
 
-  const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371;
-    const dLat = (lat2 - lat1) * (Math.PI / 180);
-    const dLon = (lon2 - lon1) * (Math.PI / 180);
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(lat1 * (Math.PI / 180)) *
-        Math.cos(lat2 * (Math.PI / 180)) *
-        Math.sin(dLon / 2) *
-        Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
-  };
-
   const calculateAverageSpeed = () => {
     if (speedReadingsRef.current.length === 0) return 0;
     const sum = speedReadingsRef.current.reduce((acc, speed) => acc + speed, 0);
@@ -550,7 +813,7 @@ export function OverspeedProvider({ children }) {
     return avg;
   };
 
-  const resetDrivingMetrics = () => {
+  const resetDrivingMetrics = async () => {
     console.log("[OverspeedProvider] Resetting driving metrics");
     shiftStartTimeRef.current = null;
     lastLocationRef.current = null;
@@ -560,9 +823,13 @@ export function OverspeedProvider({ children }) {
     setTotalDistance(0);
     setTopSpeed(0);
     setAvgSpeed(0);
+    
+    // Clear from persistent storage
+    await clearShiftMetrics();
+    await clearShiftState();
   };
 
-  const initializeShiftMetrics = (currentLocation) => {
+  const initializeShiftMetrics = async (currentLocation) => {
     if (!currentLocation || typeof currentLocation.latitude !== 'number' || typeof currentLocation.longitude !== 'number') {
       console.error("[OverspeedProvider] Cannot initialize metrics - invalid location:", currentLocation);
       return;
@@ -577,6 +844,20 @@ export function OverspeedProvider({ children }) {
     setTotalDistance(0);
     setTopSpeed(0);
     setAvgSpeed(0);
+    
+    // Save to persistent storage
+    await saveShiftMetrics({
+      topSpeed: 0,
+      totalDistance: 0,
+      avgSpeed: 0,
+      shiftStartTime: shiftStartTimeRef.current,
+      speedReadings: [],
+      lastLocationCoords: currentLocation,
+    });
+    
+    if (currentUserIdRef.current) {
+      await saveShiftState(true, currentUserIdRef.current);
+    }
   };
 
   const getShiftMetrics = () => {
@@ -628,6 +909,33 @@ export function OverspeedProvider({ children }) {
         return;
       }
 
+      // Request background location permission for Android
+      const { status: backgroundStatus } = await Location.requestBackgroundPermissionsAsync();
+      if (backgroundStatus !== "granted") {
+        console.warn("[OverspeedProvider] Background location permission denied - app will only track in foreground");
+      } else {
+        console.log("[OverspeedProvider] Background location permission granted");
+        
+        // Start background location task
+        try {
+          await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
+            accuracy: Location.Accuracy.BestForNavigation,
+            timeInterval: 5000,
+            distanceInterval: 10,
+            foregroundService: {
+              notificationTitle: "Droptimize Active",
+              notificationBody: "Tracking your delivery route",
+              notificationColor: "#00b2e1",
+            },
+            pausesUpdatesAutomatically: false,
+            showsBackgroundLocationIndicator: true,
+          });
+          console.log("[OverspeedProvider] Background location updates started");
+        } catch (bgError) {
+          console.error("[OverspeedProvider] Failed to start background location:", bgError);
+        }
+      }
+
       console.log("[OverspeedProvider] Getting initial position...");
       const initial = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.BestForNavigation,
@@ -651,7 +959,7 @@ export function OverspeedProvider({ children }) {
         ts: initial.timestamp || Date.now(),
       };
       
-      const kmh0 = calcSpeedKmh(initial);
+      const kmh0 = calculateSpeedKmh(initial);
       setSpeed(kmh0);
       setLocation({
         latitude: initial.coords.latitude,
@@ -689,7 +997,7 @@ export function OverspeedProvider({ children }) {
             const now = Date.now();
             const shouldWriteToFirestore = (now - lastWriteTsRef.current) >= 2000;
 
-            const kmh = calcSpeedKmh(pos);
+            const kmh = calculateSpeedKmh(pos);
             const newLocation = {
               latitude: pos.coords.latitude,
               longitude: pos.coords.longitude,
@@ -711,7 +1019,7 @@ export function OverspeedProvider({ children }) {
               }
 
               if (lastLocationRef.current) {
-                const distanceKm = calculateDistance(
+                const distanceKm = calculateDistanceInKm(
                   lastLocationRef.current.latitude,
                   lastLocationRef.current.longitude,
                   newLocation.latitude,
@@ -721,6 +1029,17 @@ export function OverspeedProvider({ children }) {
                 if (distanceKm > 0.001 && distanceKm < 0.5) {
                   setTotalDistance(prev => {
                     const newTotal = prev + distanceKm;
+                    
+                    // Save metrics to persistent storage periodically
+                    saveShiftMetrics({
+                      topSpeed: Math.max(kmh, topSpeed),
+                      totalDistance: newTotal,
+                      avgSpeed: calculateAverageSpeed(),
+                      shiftStartTime: shiftStartTimeRef.current,
+                      speedReadings: speedReadingsRef.current,
+                      lastLocationCoords: newLocation,
+                    }).catch(err => console.error("[Metrics] Save failed:", err));
+                    
                     return newTotal;
                   });
                 } else if (distanceKm >= 0.5) {
@@ -786,6 +1105,33 @@ export function OverspeedProvider({ children }) {
 
         console.log("[OverspeedProvider] User logged in:", user.uid);
         currentUserIdRef.current = user.uid;
+
+        // ✅ Restore metrics from persistent storage if app was closed during shift
+        try {
+          const savedMetrics = await loadShiftMetrics();
+          const savedState = await loadShiftState();
+          
+          if (savedMetrics && savedState?.isActive && savedState?.uid === user.uid) {
+            console.log("[OverspeedProvider] Restoring shift metrics from storage:", savedMetrics);
+            
+            // Restore state
+            shiftStartTimeRef.current = savedMetrics.shiftStartTime;
+            lastLocationRef.current = savedMetrics.lastLocationCoords;
+            speedReadingsRef.current = savedMetrics.speedReadings || [];
+            isTrackingMetricsRef.current = true;
+            
+            // Restore UI state
+            setTopSpeed(savedMetrics.topSpeed || 0);
+            setTotalDistance(savedMetrics.totalDistance || 0);
+            setAvgSpeed(savedMetrics.avgSpeed || 0);
+            
+            console.log("[OverspeedProvider] ✅ Shift metrics restored - continuing from where left off");
+          } else {
+            console.log("[OverspeedProvider] No active shift found in storage");
+          }
+        } catch (error) {
+          console.error("[OverspeedProvider] Failed to restore metrics:", error);
+        }
 
         const userRef = doc(db, "users", user.uid);
         userDocUnsubRef.current = onSnapshot(
@@ -881,6 +1227,30 @@ export function OverspeedProvider({ children }) {
       }
     };
   }, []);
+
+  // Add AppState listener to save metrics when app goes to background
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", async (nextAppState) => {
+      if (nextAppState === "background" && isTrackingMetricsRef.current) {
+        console.log("[OverspeedProvider] App going to background - saving metrics");
+        await saveShiftMetrics({
+          topSpeed: topSpeed,
+          totalDistance: totalDistance,
+          avgSpeed: avgSpeed,
+          shiftStartTime: shiftStartTimeRef.current,
+          speedReadings: speedReadingsRef.current,
+          lastLocationCoords: lastLocationRef.current,
+        });
+      } else if (nextAppState === "active") {
+        console.log("[OverspeedProvider] App returning to foreground");
+        // Metrics will be restored automatically by auth listener if needed
+      }
+    });
+
+    return () => {
+      subscription?.remove();
+    };
+  }, [topSpeed, totalDistance, avgSpeed]);
 
   return (
     <OverspeedContext.Provider

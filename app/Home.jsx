@@ -127,7 +127,7 @@ export default function Home() {
 
   const handleStartShift = async () => {
     console.log("[Home] Starting shift - resetting metrics");
-    resetDrivingMetrics();
+    await resetDrivingMetrics();
     await updateStatus("Available");
     await fetchParcels({ ...userData, status: "Available" });
   };
@@ -143,7 +143,7 @@ export default function Home() {
     }
     
     console.log("[Home] Starting delivery - initializing metrics with location:", location);
-    initializeShiftMetrics(location);
+    await initializeShiftMetrics(location);
     
     await updateStatus("Delivering");
   };
@@ -176,7 +176,7 @@ export default function Home() {
                 await updateDoc(doc(db, "users", user.uid), {
                   status: "Offline",
                 });
-                resetDrivingMetrics();
+                await resetDrivingMetrics();
                 setDeliveries([]);
                 setNextDelivery(null);
                 setButtonLoading(false);
@@ -212,7 +212,7 @@ export default function Home() {
       });
 
       // Reset local metrics after successful save
-      resetDrivingMetrics();
+      await resetDrivingMetrics();
       setDeliveries([]);
       setNextDelivery(null);
 
@@ -253,7 +253,7 @@ export default function Home() {
               });
               setDeliveries([]);
               setNextDelivery(null);
-              resetDrivingMetrics();
+              await resetDrivingMetrics();
               console.log("[Home] Shift cancelled");
             } catch (err) {
               console.error("Failed to cancel shift:", err);

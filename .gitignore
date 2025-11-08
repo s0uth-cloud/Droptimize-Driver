@@ -43,3 +43,6 @@ app-example
 
 # Android Studio
 /android
+
+# MD
+*.md

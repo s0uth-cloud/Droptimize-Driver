@@ -24,7 +24,7 @@ export const fetchAllParcels = async (uid = null) => {
             recipient: parcelData.recipient || '',
             address: parcelData.address || '',
             dateAdded: parcelData.dateAdded?.toDate() || new Date(),
-            userId: uid
+            uid: uid
           });
         }
       }
@@ -43,7 +43,7 @@ export const fetchAllParcels = async (uid = null) => {
           recipient: parcelData.recipient || '',
           address: parcelData.address || '',
           dateAdded: parcelData.dateAdded?.toDate() || new Date(),
-          userId: parcelData.uid || ''
+          uid: parcelData.uid || ''
         });
       }
     }
@@ -142,7 +142,7 @@ export const addParcel = async (parcelData, uid) => {
       success: true,
       id: parcelId,
       timestamp: timestamp,
-      userId: uid
+      uid: uid
     };
   } catch (error) {
     console.error('Error adding parcel:', error);
@@ -256,7 +256,7 @@ export const getParcel = async (parcelId) => {
         recipient: parcelData.recipient || '',
         address: parcelData.address || '',
         dateAdded: parcelData.dateAdded?.toDate() || new Date(),
-        userId: parcelData.uid || ''
+        uid: parcelData.uid || ''
       }
     };
   } catch (error) {
