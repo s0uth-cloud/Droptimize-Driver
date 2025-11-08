@@ -108,22 +108,17 @@ export const fetchParcelStatusData = async (uid = null) => {
   }
 };
 
-// Add a new parcel to the database following the nested structure
-// parcels > uid > timestamp > parcel_id
 export const addParcel = async (parcelData, uid) => {
   try {
     if (!uid) {
       throw new Error('User ID (uid) is required to add a parcel');
     }
     
-    // Create a timestamp for the current time
     const now = new Date();
     const timestamp = now.getTime();
     
-    // Generate a unique ID for the parcel if not provided
     const parcelId = parcelData.id || `PKG${Math.floor(Math.random() * 1000000).toString().padStart(6, '0')}`;
     
-    // Format the data to be stored
     const dataToStore = {
       uid: uid,
       reference: parcelData.reference || '',
@@ -134,7 +129,6 @@ export const addParcel = async (parcelData, uid) => {
       createdAt: Timestamp.fromDate(now)
     };
     
-    // Set the document at the nested path
     const parcelDocRef = doc(db, `parcels/${parcelId}`);
     await setDoc(parcelDocRef, dataToStore);
     
@@ -153,34 +147,27 @@ export const addParcel = async (parcelData, uid) => {
   }
 };
 
-// Update an existing parcel in the database
-// Requires only the parcelId
 export const updateParcel = async (parcelData, parcelId) => {
   try {
     if (!parcelId) {
       throw new Error('Parcel ID is required to update a parcel');
     }
     
-    // Format the data to be updated
     const dataToUpdate = {
       reference: parcelData.reference,
       status: parcelData.status,
       recipient: parcelData.recipient,
       address: parcelData.address,
-      // Only include fields that are provided in the update
       ...(parcelData.dateAdded && { dateAdded: parcelData.dateAdded }),
-      // Add updatedAt timestamp
       updatedAt: Timestamp.fromDate(new Date())
     };
     
-    // Remove any undefined fields
     Object.keys(dataToUpdate).forEach(key => {
       if (dataToUpdate[key] === undefined) {
         delete dataToUpdate[key];
       }
     });
     
-    // Set the document at the path
     const parcelDocRef = doc(db, `parcels/${parcelId}`);
     await setDoc(parcelDocRef, dataToUpdate, { merge: true });
     
@@ -197,18 +184,14 @@ export const updateParcel = async (parcelData, parcelId) => {
   }
 };
 
-// Delete a parcel from the database
-// Requires the parcelId
 export const deleteParcel = async (parcelId) => {
   try {
     if (!parcelId) {
       throw new Error('Parcel ID is required to delete a parcel');
     }
     
-    // Reference to the parcel document
     const parcelDocRef = doc(db, `parcels/${parcelId}`);
     
-    // Delete the document
     await deleteDoc(parcelDocRef);
     
     return {
@@ -224,18 +207,14 @@ export const deleteParcel = async (parcelId) => {
   }
 };
 
-// Get a single parcel by its ID
-// Requires only the parcelId
 export const getParcel = async (parcelId) => {
   try {
     if (!parcelId) {
       throw new Error('Parcel ID is required to get a parcel');
     }
     
-    // Reference to the parcel document
     const parcelDocRef = doc(db, `parcels/${parcelId}`);
     
-    // Get the document
     const parcelDoc = await getDoc(parcelDocRef);
     
     if (!parcelDoc.exists()) {
@@ -268,7 +247,6 @@ export const getParcel = async (parcelId) => {
   }
 };
 
-// Fetch driver status data
 export const fetchDriverStatusData = async () => {
   try {
     const driversRef = collection(db, 'drivers');
@@ -302,13 +280,11 @@ export const fetchDriverStatusData = async () => {
   }
 };
 
-// Fetch delivery volume data
 export const fetchDeliveryVolumeData = async (period = 'daily') => {
   try {
     const deliveriesRef = collection(db, 'deliveries');
     const deliveriesSnapshot = await getDocs(deliveriesRef);
     
-    // Process data based on period (daily/weekly)
     const deliveryData = {};
     
     deliveriesSnapshot.forEach((doc) => {
@@ -319,9 +295,8 @@ export const fetchDeliveryVolumeData = async (period = 'daily') => {
       
       let dateKey;
       if (period === 'daily') {
-        dateKey = date.toISOString().split('T')[0]; // YYYY-MM-DD
+        dateKey = date.toISOString().split('T')[0];
       } else {
-        // Get week number
         const weekNumber = getWeekNumber(date);
         dateKey = `Week ${weekNumber}`;
       }
@@ -341,7 +316,6 @@ export const fetchDeliveryVolumeData = async (period = 'daily') => {
       }
     });
     
-    // Calculate success rate and convert to array
     const result = Object.values(deliveryData).map(item => {
       const successRate = ((item.deliveries - item.failedOrReturned) / item.deliveries) * 100;
       return {
@@ -350,7 +324,6 @@ export const fetchDeliveryVolumeData = async (period = 'daily') => {
       };
     });
     
-    // Sort by date
     return result.sort((a, b) => a.date.localeCompare(b.date));
   } catch (error) {
     console.error('Error fetching delivery volume data:', error);
@@ -358,13 +331,11 @@ export const fetchDeliveryVolumeData = async (period = 'daily') => {
   }
 };
 
-// Fetch overspeeding incidents data
 export const fetchOverspeedingData = async (period = 'daily') => {
   try {
     const incidentsRef = collection(db, 'speedingIncidents');
     const incidentsSnapshot = await getDocs(incidentsRef);
     
-    // Process data based on period (daily/weekly)
     const incidentData = {};
     
     incidentsSnapshot.forEach((doc) => {
@@ -375,9 +346,8 @@ export const fetchOverspeedingData = async (period = 'daily') => {
       
       let dateKey;
       if (period === 'daily') {
-        dateKey = date.toISOString().split('T')[0]; // YYYY-MM-DD
+        dateKey = date.toISOString().split('T')[0];
       } else {
-        // Get week number
         const weekNumber = getWeekNumber(date);
         dateKey = `Week ${weekNumber}`;
       }
@@ -399,7 +369,6 @@ export const fetchOverspeedingData = async (period = 'daily') => {
       }
     });
     
-    // Calculate average speed and convert to array
     const result = Object.values(incidentData).map(item => {
       const avgSpeed = item.speedReadings > 0 ? item.totalSpeed / item.speedReadings : 0;
       return {
@@ -409,7 +378,6 @@ export const fetchOverspeedingData = async (period = 'daily') => {
       };
     });
     
-    // Sort by date
     return result.sort((a, b) => a.date.localeCompare(b.date));
   } catch (error) {
     console.error('Error fetching overspeeding data:', error);
@@ -417,7 +385,6 @@ export const fetchOverspeedingData = async (period = 'daily') => {
   }
 };
 
-// Fetch recent incidents
 export const fetchRecentIncidents = async (limit = 5) => {
   try {
     const incidentsRef = collection(db, 'speedingIncidents');
@@ -443,7 +410,6 @@ export const fetchRecentIncidents = async (limit = 5) => {
   }
 };
 
-// Helper function to get week number
 function getWeekNumber(date) {
   const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
   const pastDaysOfYear = (date - firstDayOfYear) / 86400000;

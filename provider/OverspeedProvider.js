@@ -68,6 +68,10 @@ const ZONE_DEFAULT_SPEEDS = {
 // Background location task name
 const BACKGROUND_LOCATION_TASK = "background-location-task";
 
+// Track last violation time for background task cooldown
+let lastBackgroundViolationTime = 0;
+let lastBackgroundZoneId = null;
+
 // Helper function to calculate distance between two coordinates in kilometers
 const calculateDistanceInKm = (lat1, lon1, lat2, lon2) => {
   const R = 6371; // Earth's radius in km
@@ -175,52 +179,70 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
         const zone = checkActiveZone({ latitude: coords.latitude, longitude: coords.longitude }, slowdowns);
         const speedLimit = zone?.speedLimit || DEFAULT_SPEED_LIMIT;
         
-        // Check for overspeeding
+        // Check for overspeeding with cooldown
+        const now = Date.now();
+        const zoneKey = zone?.id ?? "default";
+        const sameZone = zoneKey === lastBackgroundZoneId;
+        
         if (speedKmh > speedLimit + 3 && speedKmh > MIN_SPEED_FOR_VIOLATION) {
-          console.warn("[Background] ⚠️ OVERSPEED DETECTED - Speed:", speedKmh, "Limit:", speedLimit);
-          
-          // Send notification alert
-          await Notifications.scheduleNotificationAsync({
-            content: {
-              title: "⚠️ Speeding Violation",
-              body: `You're going ${speedKmh} km/h in a ${speedLimit} km/h zone!`,
-              sound: true,
-              priority: Notifications.AndroidNotificationPriority.HIGH,
-              vibrate: [0, 250, 250, 250],
-            },
-            trigger: null, // Send immediately
-          });
-          
-          // Log violation to Firestore
-          const violationPayload = {
-            message: "Speeding violation (Background)",
-            confirmed: false,
-            issuedAt: Timestamp.now(),
-            driverLocation: {
-              latitude: coords.latitude,
-              longitude: coords.longitude,
-            },
-            topSpeed: speedKmh,
-            avgSpeed: speedKmh,
-            distance: 0,
-            time: 0,
-            zoneId: zone?.id ?? null,
-            zoneCategory: zone?.category ?? "Default",
-            zoneLimit: zone?.speedLimit ?? null,
-            defaultLimit: DEFAULT_SPEED_LIMIT,
-          };
-          
-          await updateDoc(userRef, { 
-            violations: arrayUnion(violationPayload),
-            location: {
-              latitude: coords.latitude,
-              longitude: coords.longitude,
-              speedKmh: speedKmh,
-            },
-            lastLocationAt: serverTimestamp(),
-          });
-          
-          console.log("[Background] Violation logged and notification sent");
+          // Check cooldown: don't spam notifications
+          if (sameZone && now - lastBackgroundViolationTime < VIOLATION_COOLDOWN_MS) {
+            console.log("[Background] Still in cooldown period, skipping notification");
+          } else {
+            console.warn("[Background] ⚠️ OVERSPEED DETECTED - Speed:", speedKmh, "Limit:", speedLimit);
+            
+            // Update cooldown tracking
+            lastBackgroundViolationTime = now;
+            lastBackgroundZoneId = zoneKey;
+            
+            // Send notification alert
+            await Notifications.scheduleNotificationAsync({
+              content: {
+                title: "⚠️ Speeding Violation",
+                body: `You're going ${speedKmh} km/h in a ${speedLimit} km/h zone!`,
+                sound: true,
+                priority: Notifications.AndroidNotificationPriority.HIGH,
+                vibrate: [0, 250, 250, 250],
+              },
+              trigger: null, // Send immediately
+            });
+            
+            // Log violation to Firestore
+            const violationPayload = {
+              message: "Speeding violation (Background)",
+              confirmed: false,
+              issuedAt: Timestamp.now(),
+              driverLocation: {
+                latitude: coords.latitude,
+                longitude: coords.longitude,
+              },
+              topSpeed: speedKmh,
+              avgSpeed: speedKmh,
+              distance: 0,
+              time: 0,
+              zoneId: zone?.id ?? null,
+              zoneCategory: zone?.category ?? "Default",
+              zoneLimit: zone?.speedLimit ?? null,
+              defaultLimit: DEFAULT_SPEED_LIMIT,
+            };
+            
+            await updateDoc(userRef, { 
+              violations: arrayUnion(violationPayload),
+              location: {
+                latitude: coords.latitude,
+                longitude: coords.longitude,
+                speedKmh: speedKmh,
+              },
+              lastLocationAt: serverTimestamp(),
+            });
+            
+            console.log("[Background] Violation logged and notification sent");
+          }
+        } else {
+          // Reset zone tracking when not speeding
+          if (!sameZone) {
+            lastBackgroundZoneId = zoneKey;
+          }
         }
         
         // Update metrics
@@ -631,51 +653,6 @@ export function OverspeedProvider({ children }) {
         } catch (error) {
           console.error("[OverspeedProvider] Failed to log violation:", error);
         }
-      }
-
-      const zoneKey = zone?.id ?? "default";
-      const sameZone = zoneKey === (lastZoneViolationIdRef.current ?? "default");
-      if (now - lastViolationTsRef.current < VIOLATION_COOLDOWN_MS && sameZone) {
-        return;
-      }
-
-      console.warn(
-        "[OverspeedProvider] ⚠️ VIOLATION - Speed:",
-        speedKmh,
-        "Limit:",
-        limit,
-        "Zone:",
-        zone?.category || "Default",
-        "- Grace period passed"
-      );
-      lastViolationTsRef.current = now;
-      lastZoneViolationIdRef.current = zoneKey;
-      overspeedStartTimeRef.current = null;
-
-      const userRef = doc(db, "users", uid);
-      const payload = {
-        message: "Speeding violation",
-        confirmed: false,
-        issuedAt: Timestamp.now(),
-        driverLocation: {
-          latitude: coord.latitude,
-          longitude: coord.longitude,
-        },
-        topSpeed: Math.round(speedKmh),
-        avgSpeed: Math.round(speedKmh),
-        distance: 0,
-        time: 0,
-        zoneId: zone?.id ?? null,
-        zoneCategory: zone?.category ?? "Default",
-        zoneLimit: zone?.speedLimit ?? null,
-        defaultLimit: DEFAULT_SPEED_LIMIT,
-      };
-      
-      try {
-        await updateDoc(userRef, { violations: arrayUnion(payload) });
-        console.log("[OverspeedProvider] Violation logged to Firestore");
-      } catch (error) {
-        console.error("[OverspeedProvider] Failed to log violation:", error);
       }
     } catch (error) {
       console.error("[OverspeedProvider] checkAndLogOverspeed error:", error);

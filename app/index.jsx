@@ -14,7 +14,6 @@ export default function Index() {
   const ensuredViolationsRef = useRef(false);
   const mountedRef = useRef(true);
 
-  // Splash timer
   useEffect(() => {
     mountedRef.current = true;
       

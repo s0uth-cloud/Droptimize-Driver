@@ -1,21 +1,21 @@
 import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
 import { getApps, initializeApp } from "firebase/app";
 import {
-  createUserWithEmailAndPassword,
-  getAuth,
-  getReactNativePersistence,
-  initializeAuth,
-  onAuthStateChanged,
-  sendEmailVerification,
-  signInWithEmailAndPassword,
-  updateProfile,
+    createUserWithEmailAndPassword,
+    getAuth,
+    getReactNativePersistence,
+    initializeAuth,
+    onAuthStateChanged,
+    sendEmailVerification,
+    signInWithEmailAndPassword,
+    updateProfile,
 } from "firebase/auth";
 import {
-  doc,
-  getDoc,
-  getFirestore,
-  serverTimestamp,
-  setDoc,
+    doc,
+    getDoc,
+    getFirestore,
+    serverTimestamp,
+    setDoc,
 } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
@@ -51,9 +51,8 @@ export const registerUser = async ({ email, password, firstName, lastName }) => 
 
     await updateProfile(user, { displayName: fullName });
     
-    // Create user document with all fields
     await setDoc(doc(db, "users", user.uid), {
-      uid: user.uid,  // Changed from "id" to "uid"
+      uid: user.uid,
       fullName,
       firstName,
       lastName,
@@ -68,12 +67,11 @@ export const registerUser = async ({ email, password, firstName, lastName }) => 
       parcelsDelivered: 0,
       totalTrips: 0,
       accountSetupComplete: false,
-      vehicleSetupComplete: false,  // Added this
+      vehicleSetupComplete: false,
       createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),  // Added this
+      updatedAt: serverTimestamp(),
     });
 
-    // Send verification email after document is created
     await sendEmailVerification(user);
 
     await ReactNativeAsyncStorage.setItem(

@@ -6,9 +6,6 @@ const STORAGE_KEYS = {
   LAST_LOCATION: '@droptimize:last_location',
 };
 
-/**
- * Save shift metrics to persistent storage
- */
 export const saveShiftMetrics = async (metrics) => {
   try {
     const data = {
@@ -27,9 +24,6 @@ export const saveShiftMetrics = async (metrics) => {
   }
 };
 
-/**
- * Load shift metrics from persistent storage
- */
 export const loadShiftMetrics = async () => {
   try {
     const data = await AsyncStorage.getItem(STORAGE_KEYS.SHIFT_METRICS);
@@ -45,9 +39,6 @@ export const loadShiftMetrics = async () => {
   }
 };
 
-/**
- * Clear shift metrics from storage (called when shift ends)
- */
 export const clearShiftMetrics = async () => {
   try {
     await AsyncStorage.removeItem(STORAGE_KEYS.SHIFT_METRICS);
@@ -57,9 +48,6 @@ export const clearShiftMetrics = async () => {
   }
 };
 
-/**
- * Save shift state (whether tracking is active)
- */
 export const saveShiftState = async (isActive, uid) => {
   try {
     const data = { isActive, uid, timestamp: Date.now() };
@@ -70,9 +58,6 @@ export const saveShiftState = async (isActive, uid) => {
   }
 };
 
-/**
- * Load shift state
- */
 export const loadShiftState = async () => {
   try {
     const data = await AsyncStorage.getItem(STORAGE_KEYS.SHIFT_STATE);
@@ -88,9 +73,6 @@ export const loadShiftState = async () => {
   }
 };
 
-/**
- * Clear shift state
- */
 export const clearShiftState = async () => {
   try {
     await AsyncStorage.removeItem(STORAGE_KEYS.SHIFT_STATE);
@@ -100,9 +82,6 @@ export const clearShiftState = async () => {
   }
 };
 
-/**
- * Save last known location
- */
 export const saveLastLocation = async (location) => {
   try {
     await AsyncStorage.setItem(STORAGE_KEYS.LAST_LOCATION, JSON.stringify(location));
@@ -111,9 +90,6 @@ export const saveLastLocation = async (location) => {
   }
 };
 
-/**
- * Load last known location
- */
 export const loadLastLocation = async () => {
   try {
     const data = await AsyncStorage.getItem(STORAGE_KEYS.LAST_LOCATION);

@@ -1,26 +1,26 @@
 import { router } from "expo-router";
 import {
-  arrayUnion,
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  onSnapshot,
-  query,
-  Timestamp,
-  updateDoc,
-  where,
+    arrayUnion,
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    onSnapshot,
+    query,
+    Timestamp,
+    updateDoc,
+    where,
 } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Dimensions,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Dimensions,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Dashboard from "../components/DriverDashboard";
@@ -154,14 +154,11 @@ export default function Home() {
     try {
       setButtonLoading(true);
 
-      // ✅ Get final metrics from provider
       const metrics = getShiftMetrics();
       const { durationMinutes, avgSpeed: finalAvgSpeed, topSpeed: finalTopSpeed, distance } = metrics;
 
       console.log("[Home] Ending shift - Final metrics:", metrics);
 
-      // ✅ FIXED: Prevent saving if ALL values are 0 or meaningless
-      // Check if we have any meaningful data
       const hasValidData = durationMinutes > 0 || distance > 0.01 || finalTopSpeed > 0;
 
       if (!hasValidData) {
@@ -172,7 +169,6 @@ export default function Home() {
             { 
               text: "OK", 
               onPress: async () => {
-                // Just change status to offline without saving history
                 await updateDoc(doc(db, "users", user.uid), {
                   status: "Offline",
                 });
@@ -187,7 +183,6 @@ export default function Home() {
         return;
       }
 
-      // ✅ Create driving history entry with validated data
       const drivingHistory = {
         message: "Shift completed",
         issuedAt: Timestamp.now(),
@@ -205,13 +200,11 @@ export default function Home() {
 
       console.log("[Home] Saving driving history:", drivingHistory);
 
-      // Save to Firestore
       await updateDoc(doc(db, "users", user.uid), {
         status: "Offline",
         violations: arrayUnion(drivingHistory),
       });
 
-      // Reset local metrics after successful save
       await resetDrivingMetrics();
       setDeliveries([]);
       setNextDelivery(null);
@@ -372,7 +365,6 @@ export default function Home() {
                 <Text style={styles.speedUnit}>km/h</Text>
               </View>
 
-              {/* ✅ Real-time metrics display */}
               <View style={styles.metricsContainer}>
                 <View style={styles.metricItem}>
                   <Text style={styles.metricLabel}>Distance</Text>
