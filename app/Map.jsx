@@ -20,13 +20,10 @@ const GOOGLE_MAPS_APIKEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || "";
 const DEFAULT_SPEED_LIMIT = 60;
 const DEFAULT_RADIUS = 15;
 const CATEGORY_COLORS = {
-  Crosswalk: "#00bfff",
+  Crosswalk: "#2196F3",
   School: "#ff9914",
-  Schools: "#ff9914",
   Church: "#9c27b0",
-  Curve: "#4caf50",
-  Slippery: "#f44336",
-  Slowdown: "#9e9e9e",
+  Slowdown: "#29bf12",
   Default: "#9e9e9e",
 };
 
