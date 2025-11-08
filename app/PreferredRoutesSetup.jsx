@@ -387,6 +387,7 @@ const pickerSelectStyles = StyleSheet.create({
     marginBottom: 6,
     color: "#000",
     fontSize: 14,
+    placeholderTextColor: "#999",
   },
   inputAndroid: {
     borderWidth: 1,
@@ -396,8 +397,6 @@ const pickerSelectStyles = StyleSheet.create({
     marginBottom: 6,
     color: "#000",
     fontSize: 14,
-  },
-  placeholder: {
-    color: "#999",
+    placeholderTextColor: "#999",
   },
 });

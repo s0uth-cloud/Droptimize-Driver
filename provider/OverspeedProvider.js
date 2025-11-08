@@ -29,7 +29,7 @@ export function useOverspeed() {
 const DEFAULT_SPEED_LIMIT = 60;
 const DEFAULT_ZONE_RADIUS = 15;
 const VIOLATION_COOLDOWN_MS = 60000;
-const MIN_SPEED_FOR_VIOLATION = 5;
+const MIN_SPEED_FOR_VIOLATION = 10;
 const OVERSPEED_GRACE_PERIOD_MS = 10000;
 const correctionFactor = 1.12;
 
@@ -275,12 +275,12 @@ export function OverspeedProvider({ children }) {
         }
         return;
       }
-      
-      // ✅ Get zone with properly calculated speed limit
+
       const zone = activeZoneFor(coord);
       const limit = zone?.speedLimit || DEFAULT_SPEED_LIMIT;
       
-      if (speedKmh <= limit) {
+      const overspeedBuffer = 3;
+      if (speedKmh <= limit + overspeedBuffer) {
         if (overspeedStartTimeRef.current) {
           console.log("[OverspeedProvider] Speed back under limit, resetting grace period");
           overspeedStartTimeRef.current = null;
@@ -297,9 +297,63 @@ export function OverspeedProvider({ children }) {
       }
       
       const overspeedDuration = now - overspeedStartTimeRef.current;
-      if (overspeedDuration < OVERSPEED_GRACE_PERIOD_MS) {
-        console.log("[OverspeedProvider] Still in grace period:", Math.round((OVERSPEED_GRACE_PERIOD_MS - overspeedDuration) / 1000), "seconds remaining");
-        return;
+      if (overspeedDuration >= OVERSPEED_GRACE_PERIOD_MS) {
+        const zoneKey = zone?.id ?? "default";
+        const sameZone = zoneKey === (lastZoneViolationIdRef.current ?? "default");
+        if (now - lastViolationTsRef.current < VIOLATION_COOLDOWN_MS && sameZone) {
+          return;
+        }
+
+        console.warn(
+          "[OverspeedProvider] ⚠️ VIOLATION - Speed:",
+          speedKmh,
+          "Limit:",
+          limit,
+          "Zone:",
+          zone?.category || "Default",
+          "- Grace period passed"
+        );
+
+        lastViolationTsRef.current = now;
+        lastZoneViolationIdRef.current = zoneKey;
+        overspeedStartTimeRef.current = null;
+
+        if (!isAlertingViolationRef.current) {
+          isAlertingViolationRef.current = true;
+          const zoneName = zone?.category ?? "default";
+          safeSpeak(`Warning! You are overspeeding. Limit is ${limit} kilometers per hour in ${zoneName} zone.`)
+            .finally(() => {
+              setTimeout(() => {
+                isAlertingViolationRef.current = false;
+              }, 3000);
+            });
+        }
+
+        const userRef = doc(db, "users", uid);
+        const payload = {
+          message: "Speeding violation",
+          confirmed: false,
+          issuedAt: Timestamp.now(),
+          driverLocation: {
+            latitude: coord.latitude,
+            longitude: coord.longitude,
+          },
+          topSpeed: Math.round(speedKmh),
+          avgSpeed: Math.round(speedKmh),
+          distance: 0,
+          time: 0,
+          zoneId: zone?.id ?? null,
+          zoneCategory: zone?.category ?? "Default",
+          zoneLimit: zone?.speedLimit ?? null,
+          defaultLimit: DEFAULT_SPEED_LIMIT,
+        };
+
+        try {
+          await updateDoc(userRef, { violations: arrayUnion(payload) });
+          console.log("[OverspeedProvider] Violation logged to Firestore");
+        } catch (error) {
+          console.error("[OverspeedProvider] Failed to log violation:", error);
+        }
       }
 
       const zoneKey = zone?.id ?? "default";

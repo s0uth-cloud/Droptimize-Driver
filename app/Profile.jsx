@@ -251,37 +251,41 @@ export default function Profile() {
               </Text>
 
               <RNPickerSelect
-                placeholder={{ label: "Select Region", value: null }}
+                placeholder={{ label: "Select Region", value: null, color: "#999" }}
                 items={regions}
                 onValueChange={handleRegion}
                 value={selection.regionCode}
+                style={pickerSelectStyles}
               />
 
               {provinces.length > 0 && (
                 <RNPickerSelect
-                  placeholder={{ label: "Select Province", value: null }}
+                  placeholder={{ label: "Select Province", value: null, color: "#999" }}
                   items={provinces}
                   onValueChange={handleProvince}
                   value={selection.provinceCode}
+                  style={pickerSelectStyles}
                 />
               )}
 
               {municipalities.length > 0 && (
                 <RNPickerSelect
-                  placeholder={{ label: "Select Municipality", value: null }}
+                  placeholder={{ label: "Select Municipality", value: null, color: "#999" }}
                   items={municipalities}
                   onValueChange={handleMunicipality}
                   value={selection.municipalityCode}
-                />
+                  style={pickerSelectStyles}
+              />
               )}
 
               {barangays.length > 0 && (
                 <RNPickerSelect
-                  placeholder={{ label: "Select Barangay", value: null }}
+                  placeholder={{ label: "Select Barangay", value: null, color: "#999" }}
                   items={barangays}
                   onValueChange={handleBarangay}
                   value={selection.barangayCode}
-                />
+                  style={pickerSelectStyles}
+              />
               )}
 
               <TouchableOpacity style={styles.addBtn} onPress={saveRoute}>
@@ -421,3 +425,23 @@ const styles = StyleSheet.create({
   },
 });
 
+const pickerSelectStyles = StyleSheet.create({
+  inputIOS: {
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 10,
+    marginBottom: 10,
+    fontSize: 14,
+    color: "#000",
+    backgroundColor: "#fff",
+  },
+  inputAndroid: {
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 10,
+    marginBottom: 10,
+    fontSize: 14,
+    color: "#000",
+    backgroundColor: "#fff",
+  },
+});
