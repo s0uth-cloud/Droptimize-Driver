@@ -49,7 +49,7 @@ export function useOverspeed() {
 const DEFAULT_SPEED_LIMIT = 60;
 const DEFAULT_ZONE_RADIUS = 15;
 const VIOLATION_COOLDOWN_MS = 60000;
-const MIN_SPEED_FOR_VIOLATION = 10;
+const MIN_SPEED_FOR_VIOLATION = 5;
 const OVERSPEED_GRACE_PERIOD_MS = 10000;
 const SPEED_CORRECTION_FACTOR = 1.12;
 
@@ -578,8 +578,7 @@ export function OverspeedProvider({ children }) {
       const zone = checkActiveZoneWithDetails(coord);
       const limit = zone?.speedLimit || DEFAULT_SPEED_LIMIT;
       
-      const overspeedBuffer = 3;
-      if (speedKmh <= limit + overspeedBuffer) {
+      if (speedKmh <= limit) {
         if (overspeedStartTimeRef.current) {
           console.log("[OverspeedProvider] Speed back under limit, resetting grace period");
           overspeedStartTimeRef.current = null;
