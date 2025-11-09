@@ -87,11 +87,9 @@ export default function PreferredRoutesSetup() {
     let updatedRoutes = [...preferredRoutes];
 
     if (editIndex !== null) {
-      // Remove the old route being edited
       updatedRoutes.splice(editIndex, 1);
     }
 
-    // Add new routes
     newRoutes.forEach((route) => {
       const exists = updatedRoutes.some((r) => r.barangayCode === route.barangayCode);
       if (!exists) {
@@ -115,21 +113,16 @@ export default function PreferredRoutesSetup() {
     const route = preferredRoutes[index];
     setEditIndex(index);
     
-    // Reset first
     resetSelection();
     
-    // Set region and wait for provinces to load
     setSelectedRegion(route.regionCode);
     
-    // Wait for provinces to load, then set province
     setTimeout(async () => {
       setSelectedProvince(route.provinceCode);
       
-      // Wait for cities to load, then set city
       setTimeout(async () => {
         setSelectedCity(route.municipalityCode);
         
-        // Wait for barangays to load, then set barangay
         setTimeout(() => {
           setSelectedBarangay([route.barangayCode]);
         }, 300);

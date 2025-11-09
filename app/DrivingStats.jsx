@@ -1,13 +1,13 @@
 import { doc, onSnapshot } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    FlatList,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { auth, db } from "../firebaseConfig";
 
@@ -32,7 +32,6 @@ export default function DrivingStats() {
       (snapshot) => {
         const data = snapshot.data();
         if (data?.violations && Array.isArray(data.violations)) {
-          // Sort records by recency (newest first)
           const sortedData = [...data.violations].sort((a, b) => {
             const aTime = a?.issuedAt?.seconds || 0;
             const bTime = b?.issuedAt?.seconds || 0;

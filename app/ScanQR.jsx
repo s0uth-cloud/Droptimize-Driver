@@ -23,10 +23,8 @@ export default function ScanQR() {
     if (scanned) return;
     setScanned(true);
 
-    // Dismiss this screen and pass data back
     if (router.canGoBack()) {
       router.dismiss();
-      // Use a timeout to ensure the screen is dismissed before setting params
       setTimeout(() => {
         router.setParams({ scannedJoinCode: data });
       }, 100);

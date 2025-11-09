@@ -27,7 +27,6 @@ import {
   saveShiftState,
 } from "../services/storageService";
 
-// Configure notification handler
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -53,7 +52,6 @@ const MIN_SPEED_FOR_VIOLATION = 5;
 const OVERSPEED_GRACE_PERIOD_MS = 10000;
 const SPEED_CORRECTION_FACTOR = 1.12;
 
-// ✅ Fallback speed limits only used if admin didn't set one
 const ZONE_DEFAULT_SPEEDS = {
   Crosswalk: 15,
   School: 20,
@@ -65,16 +63,13 @@ const ZONE_DEFAULT_SPEEDS = {
   Default: DEFAULT_SPEED_LIMIT,
 };
 
-// Background location task name
 const BACKGROUND_LOCATION_TASK = "background-location-task";
 
-// Track last violation time for background task cooldown
 let lastBackgroundViolationTime = 0;
 let lastBackgroundZoneId = null;
 
-// Helper function to calculate distance between two coordinates in kilometers
 const calculateDistanceInKm = (lat1, lon1, lat2, lon2) => {
-  const R = 6371; // Earth's radius in km
+  const R = 6371;
   const dLat = (lat2 - lat1) * (Math.PI / 180);
   const dLon = (lon2 - lon1) * (Math.PI / 180);
   const a =
@@ -87,7 +82,6 @@ const calculateDistanceInKm = (lat1, lon1, lat2, lon2) => {
   return R * c;
 };
 
-// Helper function to check if coordinate is in slowdown zone
 const checkActiveZone = (coord, slowdowns) => {
   if (!coord || !slowdowns || slowdowns.length === 0) return null;
   
@@ -112,7 +106,6 @@ const checkActiveZone = (coord, slowdowns) => {
   return null;
 };
 
-// Define background location task with full tracking
 TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
   if (error) {
     console.error("[Background] Location task error:", error);
@@ -128,13 +121,11 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
       console.log("[Background] Location update:", coords.latitude, coords.longitude, "Speed:", coords.speed);
       
       try {
-        // Calculate speed in km/h
         let speedKmh = 0;
         if (coords.speed && coords.speed > 0) {
           speedKmh = Math.round(coords.speed * 3.6 * SPEED_CORRECTION_FACTOR);
         }
         
-        // Load saved metrics and state
         const savedMetrics = await loadShiftMetrics();
         const savedState = await loadShiftState();
         
@@ -143,14 +134,12 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
           return;
         }
         
-        // Get user auth state
         const user = auth.currentUser;
         if (!user) {
           console.log("[Background] No authenticated user");
           return;
         }
         
-        // Load user data to check status and slowdowns
         const userRef = doc(db, "users", user.uid);
         const userSnap = await getDoc(userRef);
         
@@ -165,7 +154,6 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
           return;
         }
         
-        // Load slowdowns for zone checking
         let slowdowns = [];
         if (userData.branchId) {
           const branchRef = doc(db, "branches", userData.branchId);
@@ -175,27 +163,22 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
           }
         }
         
-        // Check for slowdown zones
         const zone = checkActiveZone({ latitude: coords.latitude, longitude: coords.longitude }, slowdowns);
         const speedLimit = zone?.speedLimit || DEFAULT_SPEED_LIMIT;
         
-        // Check for overspeeding with cooldown
         const now = Date.now();
         const zoneKey = zone?.id ?? "default";
         const sameZone = zoneKey === lastBackgroundZoneId;
         
         if (speedKmh > speedLimit + 3 && speedKmh > MIN_SPEED_FOR_VIOLATION) {
-          // Check cooldown: don't spam notifications
           if (sameZone && now - lastBackgroundViolationTime < VIOLATION_COOLDOWN_MS) {
             console.log("[Background] Still in cooldown period, skipping notification");
           } else {
             console.warn("[Background] ⚠️ OVERSPEED DETECTED - Speed:", speedKmh, "Limit:", speedLimit);
             
-            // Update cooldown tracking
             lastBackgroundViolationTime = now;
             lastBackgroundZoneId = zoneKey;
             
-            // Send notification alert
             await Notifications.scheduleNotificationAsync({
               content: {
                 title: "⚠️ Speeding Violation",
@@ -204,10 +187,9 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
                 priority: Notifications.AndroidNotificationPriority.HIGH,
                 vibrate: [0, 250, 250, 250],
               },
-              trigger: null, // Send immediately
+              trigger: null,
             });
             
-            // Log violation to Firestore
             const violationPayload = {
               message: "Speeding violation (Background)",
               confirmed: false,
@@ -239,30 +221,25 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
             console.log("[Background] Violation logged and notification sent");
           }
         } else {
-          // Reset zone tracking when not speeding
           if (!sameZone) {
             lastBackgroundZoneId = zoneKey;
           }
         }
         
-        // Update metrics
         if (savedMetrics) {
           let newTopSpeed = savedMetrics.topSpeed || 0;
           let newTotalDistance = savedMetrics.totalDistance || 0;
           const speedReadings = savedMetrics.speedReadings || [];
           
-          // Update top speed
           if (speedKmh > newTopSpeed) {
             newTopSpeed = speedKmh;
             console.log("[Background] New top speed:", newTopSpeed);
           }
           
-          // Update speed readings
           if (speedKmh > 0) {
             speedReadings.push(speedKmh);
           }
           
-          // Calculate distance
           if (savedMetrics.lastLocationCoords) {
             const distanceKm = calculateDistanceInKm(
               savedMetrics.lastLocationCoords.latitude,
@@ -277,12 +254,10 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
             }
           }
           
-          // Calculate average speed
           const avgSpeed = speedReadings.length > 0
             ? Math.round(speedReadings.reduce((a, b) => a + b, 0) / speedReadings.length)
             : 0;
           
-          // Save updated metrics
           await saveShiftMetrics({
             topSpeed: newTopSpeed,
             totalDistance: newTotalDistance,
@@ -298,7 +273,6 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
           console.log("[Background] Metrics updated - Distance:", newTotalDistance.toFixed(2), "km, Top:", newTopSpeed, "km/h, Avg:", avgSpeed, "km/h");
         }
         
-        // Update location in Firestore
         await updateDoc(userRef, {
           location: {
             latitude: coords.latitude,
@@ -308,7 +282,6 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
           lastLocationAt: serverTimestamp(),
         });
         
-        // Save location to storage for when app reopens
         await saveLastLocation({
           latitude: coords.latitude,
           longitude: coords.longitude,
@@ -436,7 +409,6 @@ export function OverspeedProvider({ children }) {
       locationSubRef.current = null;
     }
     
-    // Stop background location updates
     try {
       const isTaskRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
       if (isTaskRegistered) {
@@ -506,7 +478,6 @@ export function OverspeedProvider({ children }) {
     return finalSpeed;
   };
 
-  // Check if coordinate is within an active slowdown zone
   const checkActiveZoneWithDetails = (coord) => {
     if (!coord || typeof coord.latitude !== 'number' || typeof coord.longitude !== 'number') {
       return null;
@@ -525,23 +496,19 @@ export function OverspeedProvider({ children }) {
         
         const r = Number(z?.radius) > 0 ? Number(z.radius) : DEFAULT_ZONE_RADIUS;
         if (d <= r) {
-          // ✅ CRITICAL: Determine speed limit with proper priority
           let effectiveSpeedLimit;
           const category = z.category || "Default";
           
-          // Priority 1: Use admin-set speedLimit if it exists and is valid
           if (z.speedLimit !== undefined && z.speedLimit !== null) {
             const adminLimit = Number(z.speedLimit);
             if (adminLimit > 0) {
               effectiveSpeedLimit = adminLimit;
               console.log("[Zone] Using ADMIN-SET speed limit:", effectiveSpeedLimit, "km/h for", category);
             } else {
-              // Admin set it to 0 or negative - use category default
               effectiveSpeedLimit = ZONE_DEFAULT_SPEEDS[category] || DEFAULT_SPEED_LIMIT;
               console.log("[Zone] Admin set invalid limit, using CATEGORY default:", effectiveSpeedLimit, "km/h for", category);
             }
           } else {
-            // Priority 2: No admin limit - use category default
             effectiveSpeedLimit = ZONE_DEFAULT_SPEEDS[category] || DEFAULT_SPEED_LIMIT;
             console.log("[Zone] No admin limit, using CATEGORY default:", effectiveSpeedLimit, "km/h for", category);
           }
@@ -744,12 +711,10 @@ export function OverspeedProvider({ children }) {
       }
       console.log("[OverspeedProvider] Found", data.slowdowns.length, "slowdowns in branch");
       
-      // ✅ CRITICAL: Preserve admin-set speed limits exactly as stored
       const processedSlowdowns = data.slowdowns.map((s, i) => {
         const category = s?.category ?? "Default";
-        const adminSpeedLimit = s?.speedLimit; // Keep original value (could be string, number, undefined, null)
+        const adminSpeedLimit = s?.speedLimit;
         
-        // Convert to number if it exists
         let finalSpeedLimit;
         if (adminSpeedLimit !== undefined && adminSpeedLimit !== null && adminSpeedLimit !== "") {
           const numericLimit = Number(adminSpeedLimit);
@@ -770,7 +735,7 @@ export function OverspeedProvider({ children }) {
           category: category,
           location: s?.location,
           radius: s?.radius ?? DEFAULT_ZONE_RADIUS,
-          speedLimit: finalSpeedLimit, // This is the properly parsed speed limit
+          speedLimit: finalSpeedLimit,
         };
       });
       
@@ -800,7 +765,6 @@ export function OverspeedProvider({ children }) {
     setTopSpeed(0);
     setAvgSpeed(0);
     
-    // Clear from persistent storage
     await clearShiftMetrics();
     await clearShiftState();
   };
@@ -821,7 +785,6 @@ export function OverspeedProvider({ children }) {
     setTopSpeed(0);
     setAvgSpeed(0);
     
-    // Save to persistent storage
     await saveShiftMetrics({
       topSpeed: 0,
       totalDistance: 0,
@@ -885,14 +848,12 @@ export function OverspeedProvider({ children }) {
         return;
       }
 
-      // Request background location permission for Android
       const { status: backgroundStatus } = await Location.requestBackgroundPermissionsAsync();
       if (backgroundStatus !== "granted") {
         console.warn("[OverspeedProvider] Background location permission denied - app will only track in foreground");
       } else {
         console.log("[OverspeedProvider] Background location permission granted");
         
-        // Start background location task
         try {
           await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
             accuracy: Location.Accuracy.BestForNavigation,
@@ -1082,7 +1043,6 @@ export function OverspeedProvider({ children }) {
         console.log("[OverspeedProvider] User logged in:", user.uid);
         currentUserIdRef.current = user.uid;
 
-        // ✅ Restore metrics from persistent storage if app was closed during shift
         try {
           const savedMetrics = await loadShiftMetrics();
           const savedState = await loadShiftState();
@@ -1090,13 +1050,11 @@ export function OverspeedProvider({ children }) {
           if (savedMetrics && savedState?.isActive && savedState?.uid === user.uid) {
             console.log("[OverspeedProvider] Restoring shift metrics from storage:", savedMetrics);
             
-            // Restore state
             shiftStartTimeRef.current = savedMetrics.shiftStartTime;
             lastLocationRef.current = savedMetrics.lastLocationCoords;
             speedReadingsRef.current = savedMetrics.speedReadings || [];
             isTrackingMetricsRef.current = true;
             
-            // Restore UI state
             setTopSpeed(savedMetrics.topSpeed || 0);
             setTotalDistance(savedMetrics.totalDistance || 0);
             setAvgSpeed(savedMetrics.avgSpeed || 0);
@@ -1135,7 +1093,9 @@ export function OverspeedProvider({ children }) {
 
               if (alertsEnabledRef.current && !isAlertingViolationRef.current) {
                 const newCount = violationsArr.length;
-                if (newCount > prevViolationsCountRef.current) {
+                // Only alert for NEW violations, not existing ones on app open
+                const isFirstLoad = prevViolationsCountRef.current === 0 && newCount > 0;
+                if (newCount > prevViolationsCountRef.current && !isFirstLoad) {
                   for (let i = prevViolationsCountRef.current; i < newCount; i++) {
                     const violation = violationsArr[i];
                     if (!violation) continue;
@@ -1170,7 +1130,6 @@ export function OverspeedProvider({ children }) {
                 prevViolationsCountRef.current = violationsArr.length;
               }
 
-              // ✅ CRITICAL: Load slowdowns with proper speed limits
               slowdownsRef.current = data?.branchId
                 ? await loadBranchSlowdowns(data.branchId)
                 : [];
@@ -1204,7 +1163,6 @@ export function OverspeedProvider({ children }) {
     };
   }, []);
 
-  // Add AppState listener to save metrics when app goes to background
   useEffect(() => {
     const subscription = AppState.addEventListener("change", async (nextAppState) => {
       if (nextAppState === "background" && isTrackingMetricsRef.current) {
@@ -1219,7 +1177,6 @@ export function OverspeedProvider({ children }) {
         });
       } else if (nextAppState === "active") {
         console.log("[OverspeedProvider] App returning to foreground");
-        // Metrics will be restored automatically by auth listener if needed
       }
     });
 

@@ -4,11 +4,11 @@ import { collection, doc, getDoc, getDocs, query, where } from "firebase/firesto
 import haversine from "haversine-distance";
 import { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import MapView, { Circle, Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import MapViewDirections from "react-native-maps-directions";
@@ -102,7 +102,6 @@ export default function Map({ user: passedUser }) {
     return "#f21b3f";
   };
 
-  // Auth listener
   useEffect(() => {
     if (user) return;
     console.log("[Map] Setting up auth listener");
@@ -113,7 +112,6 @@ export default function Map({ user: passedUser }) {
     return unsub;
   }, [user]);
 
-  // Load parcels
   const loadAllParcels = async () => {
     console.log("[Map] Loading parcels...");
     if (!user) return [];
@@ -166,7 +164,6 @@ export default function Map({ user: passedUser }) {
     }
   };
 
-  // Load everything
   const loadEverything = async () => {
     if (!user) return;
     console.log("[Map] Loading everything...");
@@ -186,7 +183,6 @@ export default function Map({ user: passedUser }) {
         allSlowdowns = allSlowdowns.concat(branch);
       }
 
-      // ✅ Prefer provider's slowdowns if available (already loaded in provider)
       if (Array.isArray(providerSlowdowns) && providerSlowdowns.length > 0) {
         console.log("[Map] Using provider slowdowns:", providerSlowdowns.length);
         allSlowdowns = providerSlowdowns;
@@ -211,7 +207,6 @@ export default function Map({ user: passedUser }) {
     if (user) loadEverything();
   }, [user, providerSlowdowns]);
 
-  // ✅ Compute heading/course when provider location updates
   useEffect(() => {
     if (!provLocation) return;
     try {
@@ -229,7 +224,6 @@ export default function Map({ user: passedUser }) {
     }
   }, [provLocation]);
 
-  // Auto-follow + rotation effect
   useEffect(() => {
     if (!provLocation || !mapRef.current || !followPuck || gestureActiveRef.current) return;
 
@@ -250,7 +244,6 @@ export default function Map({ user: passedUser }) {
     }
   }, [provLocation, followPuck, headingDeg]);
 
-  // Gesture handlers
   const saveCameraState = async () => {
     try {
       const cam = await mapRef.current?.getCamera?.();
@@ -275,7 +268,6 @@ export default function Map({ user: passedUser }) {
     }, PAUSE_AFTER_GESTURE_MS);
   };
 
-  // Fit to hazards once
   const fitToHazardsOnce = async () => {
     if (!mapRef.current || zoomHazardsDoneRef.current) return;
     const pts = [];
@@ -310,7 +302,6 @@ export default function Map({ user: passedUser }) {
     }
   }, [mapReady, slowdownsLoaded, parcelsLoaded, routeReady, needsRoute]);
 
-  // Loading screen
   if (loading || !provLocation) {
     return (
       <View style={styles.loadingContainer}>
@@ -322,7 +313,6 @@ export default function Map({ user: passedUser }) {
     );
   }
 
-  // Route calculation data
   const destinations = parcels.map((p) => ({
     latitude: p.destination.latitude,
     longitude: p.destination.longitude,
@@ -330,15 +320,12 @@ export default function Map({ user: passedUser }) {
   const waypoints = destinations.slice(0, -1);
   const finalDestination = destinations.length > 0 ? destinations[destinations.length - 1] : null;
 
-  // ✅ CRITICAL FIX: Get effective speed limit from active slowdown zone
-  // The activeSlowdown from provider already has the correct speedLimit calculated
   const effectiveLimit = activeSlowdown?.speedLimit || DEFAULT_SPEED_LIMIT;
   
   console.log("[Map] Effective speed limit:", effectiveLimit, "| Active zone:", activeSlowdown?.category || "None", "| Speed:", speed);
 
   return (
     <View style={styles.container}>
-      {/* ✅ Slowdown banner */}
       {showSlowdownWarning && activeSlowdown && (
         <View style={styles.slowdownAlert}>
           <Ionicons name="warning" size={22} color="#ffcc00" />
@@ -377,7 +364,6 @@ export default function Map({ user: passedUser }) {
           if (details?.isGesture) endGestureSoon();
         }}
       >
-        {/* User location marker with direction */}
         <Marker
           coordinate={{
             latitude: provLocation.latitude,
@@ -402,7 +388,6 @@ export default function Map({ user: passedUser }) {
           </View>
         </Marker>
 
-        {/* Slowdown zones */}
         {slowdowns.map((s, i) =>
           s.location?.lat && s.location?.lng ? (
             <Circle
@@ -416,7 +401,6 @@ export default function Map({ user: passedUser }) {
           ) : null
         )}
 
-        {/* Route and destination markers */}
         {userData?.status === "Delivering" &&
           destinations.length > 0 &&
           !!GOOGLE_MAPS_APIKEY &&
@@ -481,7 +465,6 @@ export default function Map({ user: passedUser }) {
         </View>
       )}
 
-      {/* Follow button */}
       <View style={styles.followBtn}>
         <TouchableOpacity
           style={[
@@ -527,7 +510,6 @@ export default function Map({ user: passedUser }) {
         </TouchableOpacity>
       </View>
 
-      {/* Info panel */}
       <View style={styles.infoPanel}>
         <View style={styles.row}>
           <View style={styles.infoCard}>
