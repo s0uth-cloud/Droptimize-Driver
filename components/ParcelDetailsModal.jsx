@@ -60,6 +60,15 @@ export default function ParcelDetailsModal({ visible, parcel, onClose, onUpdateS
                   ? parcel.assignedAt.toDate().toLocaleString()
                   : "—"}
               </Text>
+
+              {parcel.message && (
+                <>
+                  <Text style={styles.label}>Message / Notes</Text>
+                  <Text style={[styles.value, { fontStyle: "italic", color: "#666" }]}>
+                    {parcel.message}
+                  </Text>
+                </>
+              )}
             </View>
 
             <View style={styles.section}>
