@@ -27,11 +27,20 @@ export default function AccountSetup() {
   const [open, setOpen] = useState(false);
   const [vehicleType, setVehicleType] = useState(null);
   const [items, setItems] = useState([
-    { label: "Motorcycle", value: "motorcycle" },
-    { label: "Car", value: "car" },
-    { label: "Van", value: "van" },
-    { label: "Truck", value: "truck" },
+    { label: "Motorcycle (150 kg)", value: "motorcycle" },
+    { label: "Car (450 kg)", value: "car" },
+    { label: "Van (900 kg)", value: "van" },
+    { label: "Truck (2000 kg)", value: "truck" },
+    { label: "Tricycle (250 kg)", value: "tricycle" },
   ]);
+
+  const vehicleWeightLimits = {
+    motorcycle: 150,
+    car: 450,
+    van: 900,
+    truck: 2000,
+    tricycle: 250,
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -47,7 +56,7 @@ export default function AccountSetup() {
         return updated;
       });
     }
-  }, [scannedJoinCode]);
+  }, [scannedJoinCode, vehicleType]);
 
   const saveFormData = async (data, vType) => {
     try {
@@ -94,6 +103,11 @@ export default function AccountSetup() {
     saveFormData(formData, value);
   };
 
+  const capitalizeFirstLetter = (str) => {
+    if (!str) return str;
+    return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+  };
+
   const handleSubmit = async () => {
     const newErrors = {};
     if (!formData.address.trim()) newErrors.address = "Address is required";
@@ -127,6 +141,9 @@ export default function AccountSetup() {
       const userRef = doc(db, "users", currentUser.uid);
       const userSnap = await getDoc(userRef);
       
+      const capitalizedVehicleType = capitalizeFirstLetter(vehicleType);
+      const weightLimit = vehicleWeightLimits[vehicleType];
+      
       if (userSnap.exists()) {
         await setDoc(
           userRef,
@@ -135,7 +152,8 @@ export default function AccountSetup() {
             phoneNumber: formData.phoneNumber,
             branchId: branchRef.id,
             plateNumber: formData.plateNumber,
-            vehicleType,
+            vehicleType: capitalizedVehicleType,
+            vehicleWeightLimit: weightLimit,
             model: formData.model,
             accountSetupComplete: true,
             vehicleSetupComplete: true,
@@ -153,7 +171,8 @@ export default function AccountSetup() {
           phoneNumber: formData.phoneNumber,
           branchId: branchRef.id,
           plateNumber: formData.plateNumber,
-          vehicleType,
+          vehicleType: capitalizedVehicleType,
+          vehicleWeightLimit: weightLimit,
           model: formData.model,
           accountSetupComplete: true,
           vehicleSetupComplete: true,
