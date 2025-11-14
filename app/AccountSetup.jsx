@@ -26,20 +26,21 @@ export default function AccountSetup() {
 
   const [open, setOpen] = useState(false);
   const [vehicleType, setVehicleType] = useState(null);
+  const [customWeightLimit, setCustomWeightLimit] = useState("");
   const [items, setItems] = useState([
-    { label: "Motorcycle (150 kg)", value: "motorcycle" },
-    { label: "Car (450 kg)", value: "car" },
-    { label: "Van (900 kg)", value: "van" },
-    { label: "Truck (2000 kg)", value: "truck" },
-    { label: "Tricycle (250 kg)", value: "tricycle" },
+    { label: "Motorcycle (20 kg)", value: "motorcycle" },
+    { label: "Tricycle (100 kg)", value: "tricycle" },
+    { label: "Car (300 kg)", value: "car" },
+    { label: "Van (800 kg)", value: "van" },
+    { label: "Truck (1500 kg)", value: "truck" },
   ]);
 
   const vehicleWeightLimits = {
-    motorcycle: 150,
-    car: 450,
-    van: 900,
-    truck: 2000,
-    tricycle: 250,
+    motorcycle: 20,
+    tricycle: 100,
+    car: 300,
+    van: 800,
+    truck: 1500,
   };
 
   useFocusEffect(
@@ -62,7 +63,7 @@ export default function AccountSetup() {
     try {
       await AsyncStorage.setItem(
         FORM_STORAGE_KEY,
-        JSON.stringify({ formData: data, vehicleType: vType })
+        JSON.stringify({ formData: data, vehicleType: vType, customWeightLimit })
       );
     } catch (error) {
       console.error("Error saving form data:", error);
@@ -73,9 +74,10 @@ export default function AccountSetup() {
     try {
       const saved = await AsyncStorage.getItem(FORM_STORAGE_KEY);
       if (saved) {
-        const { formData: savedForm, vehicleType: savedType } = JSON.parse(saved);
+        const { formData: savedForm, vehicleType: savedType, customWeightLimit: savedWeight } = JSON.parse(saved);
         setFormData(savedForm);
         setVehicleType(savedType);
+        setCustomWeightLimit(savedWeight || "");
       }
     } catch (error) {
       console.error("Error loading form data:", error);
@@ -142,7 +144,9 @@ export default function AccountSetup() {
       const userSnap = await getDoc(userRef);
       
       const capitalizedVehicleType = capitalizeFirstLetter(vehicleType);
-      const weightLimit = vehicleWeightLimits[vehicleType];
+      const weightLimit = customWeightLimit && parseFloat(customWeightLimit) > 0 
+        ? parseFloat(customWeightLimit) 
+        : vehicleWeightLimits[vehicleType];
       
       if (userSnap.exists()) {
         await setDoc(
@@ -241,6 +245,25 @@ export default function AccountSetup() {
           placeholderStyle={{ color: "#999" }}
         />
         {errors.vehicleType && <Text style={styles.errorText}>{errors.vehicleType}</Text>}
+
+        <TextInput
+          style={[styles.input, { marginTop: 8 }]}
+          placeholder="Custom Weight Limit (kg) - Optional"
+          placeholderTextColor="#999"
+          value={customWeightLimit}
+          onChangeText={(text) => setCustomWeightLimit(text)}
+          keyboardType="numeric"
+          underlineColorAndroid="transparent"
+          autoCorrect={false}
+        />
+        {vehicleType && (
+          <Text style={styles.helperText}>
+            Default: {vehicleWeightLimits[vehicleType]} kg
+            {customWeightLimit && parseFloat(customWeightLimit) > 0 
+              ? ` → Custom: ${customWeightLimit} kg` 
+              : ""}
+          </Text>
+        )}
 
         <View style={[styles.inputWrapper, errors.joinCode && styles.inputError]}>
           <TextInput
@@ -342,6 +365,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#f21b3f",
     marginBottom: 10
+  },
+  helperText: {
+    fontSize: 12,
+    color: "#666",
+    marginBottom: 10,
+    marginTop: -4,
+    fontFamily: "Lexend-Regular"
   },
   button: {
     backgroundColor: "#00b2e1",

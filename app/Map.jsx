@@ -4,11 +4,11 @@ import { collection, doc, getDoc, getDocs, query, where } from "firebase/firesto
 import haversine from "haversine-distance";
 import { useEffect, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import MapView, { Circle, Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import MapViewDirections from "react-native-maps-directions";
@@ -590,7 +590,7 @@ const styles = StyleSheet.create({
   },
   etaPanel: {
     position: "absolute",
-    top: 60,
+    top: 30,
     alignSelf: "center",
     paddingVertical: 10,
     paddingHorizontal: 20,
