@@ -1,3 +1,4 @@
+import * as Haptics from "expo-haptics";
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import { usePathname } from "expo-router";
@@ -5,26 +6,26 @@ import * as Speech from "expo-speech";
 import * as TaskManager from "expo-task-manager";
 import { onAuthStateChanged } from "firebase/auth";
 import {
-  arrayUnion,
-  doc,
-  getDoc,
-  onSnapshot,
-  serverTimestamp,
-  Timestamp,
-  updateDoc,
+    arrayUnion,
+    doc,
+    getDoc,
+    onSnapshot,
+    serverTimestamp,
+    Timestamp,
+    updateDoc,
 } from "firebase/firestore";
 import haversine from "haversine-distance";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Alert, AppState } from "react-native";
 import { auth, db } from "../firebaseConfig";
 import {
-  clearShiftMetrics,
-  clearShiftState,
-  loadShiftMetrics,
-  loadShiftState,
-  saveLastLocation,
-  saveShiftMetrics,
-  saveShiftState,
+    clearShiftMetrics,
+    clearShiftState,
+    loadShiftMetrics,
+    loadShiftState,
+    saveLastLocation,
+    saveShiftMetrics,
+    saveShiftState,
 } from "../services/storageService";
 
 Notifications.setNotificationHandler({
@@ -179,6 +180,30 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
             lastBackgroundViolationTime = now;
             lastBackgroundZoneId = zoneKey;
             
+            // Trigger buzzing sound and vibration (6 beeps over 3 seconds)
+            let soundCount = 0;
+            const soundInterval = setInterval(() => {
+              if (soundCount < 6) {
+                Notifications.scheduleNotificationAsync({
+                  content: {
+                    title: "⚠️ Speeding",
+                    body: `${speedKmh} km/h in ${speedLimit} km/h zone`,
+                    sound: true,
+                    priority: Notifications.AndroidNotificationPriority.HIGH,
+                  },
+                  trigger: null,
+                }).catch(err => console.error("[Background] Notification error:", err));
+                soundCount++;
+              }
+            }, 500);
+            setTimeout(() => clearInterval(soundInterval), 3000);
+            
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            const buzzInterval = setInterval(() => {
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            }, 500);
+            setTimeout(() => clearInterval(buzzInterval), 3000);
+            
             await Notifications.scheduleNotificationAsync({
               content: {
                 title: "⚠️ Speeding Violation",
@@ -198,7 +223,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
                 latitude: coords.latitude,
                 longitude: coords.longitude,
               },
-              topSpeed: speedKmh,
+              topSpeed: Math.max(speedKmh, savedMetrics?.topSpeed || 0),
               avgSpeed: speedKmh,
               distance: 0,
               time: 0,
@@ -330,6 +355,8 @@ export function OverspeedProvider({ children }) {
   const isAlertingSlowdownRef = useRef(false);
   const userStatusRef = useRef("Offline");
   const currentUserIdRef = useRef(null);
+  const buzzingIntervalRef = useRef(null);
+  const soundObjectRef = useRef(null);
 
   const onLogin = pathname === "/Login";
 
@@ -375,6 +402,66 @@ export function OverspeedProvider({ children }) {
       console.error("[TTS] Safe speak failed:", err);
     }
   }
+
+  const startBuzzing = async () => {
+    if (buzzingIntervalRef.current) {
+      console.log("[Buzzing] Already buzzing, skipping");
+      return;
+    }
+
+    console.log("[Buzzing] Starting 3-second buzzing sound and vibration");
+    
+    // Play notification sound repeatedly
+    let soundCount = 0;
+    const playSoundInterval = setInterval(() => {
+      if (soundCount < 6) { // Play 6 beeps over 3 seconds
+        Notifications.scheduleNotificationAsync({
+          content: {
+            title: "",
+            body: "",
+            sound: true,
+            priority: Notifications.AndroidNotificationPriority.HIGH,
+          },
+          trigger: null,
+        }).catch(err => console.error("[Buzzing] Notification sound error:", err));
+        soundCount++;
+      }
+    }, 500);
+    
+    // Store the sound interval reference
+    soundObjectRef.current = playSoundInterval;
+    
+    // Immediate first vibration
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    
+    // Set up interval for continuous buzzing (vibrate every 500ms)
+    buzzingIntervalRef.current = setInterval(() => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }, 500);
+
+    // Stop after 3 seconds
+    setTimeout(() => {
+      stopBuzzing();
+    }, 3000);
+  };
+
+  const stopBuzzing = async () => {
+    if (buzzingIntervalRef.current) {
+      console.log("[Buzzing] Stopping buzzing vibration");
+      clearInterval(buzzingIntervalRef.current);
+      buzzingIntervalRef.current = null;
+    }
+    
+    if (soundObjectRef.current) {
+      try {
+        console.log("[Buzzing] Stopping audio");
+        clearInterval(soundObjectRef.current);
+        soundObjectRef.current = null;
+      } catch (error) {
+        console.error("[Buzzing] Failed to stop sound:", error);
+      }
+    }
+  };
 
   useEffect(() => {
     console.log("[OverspeedProvider] Pathname changed:", pathname);
@@ -583,6 +670,9 @@ export function OverspeedProvider({ children }) {
         lastZoneViolationIdRef.current = zoneKey;
         overspeedStartTimeRef.current = null;
 
+        // Start buzzing vibration
+        startBuzzing();
+
         if (!isAlertingViolationRef.current) {
           isAlertingViolationRef.current = true;
           const zoneName = zone?.category ?? "default";
@@ -603,7 +693,7 @@ export function OverspeedProvider({ children }) {
             latitude: coord.latitude,
             longitude: coord.longitude,
           },
-          topSpeed: Math.round(speedKmh),
+          topSpeed: Math.max(Math.round(speedKmh), topSpeed),
           avgSpeed: Math.round(speedKmh),
           distance: 0,
           time: 0,
@@ -1156,6 +1246,7 @@ export function OverspeedProvider({ children }) {
         if (authUnsubRef.current) authUnsubRef.current();
         if (userDocUnsubRef.current) userDocUnsubRef.current();
         stopLocationWatch();
+        stopBuzzing();
         Speech.stop();
       } catch (e) {
         console.error("[OverspeedProvider] Cleanup error:", e);
