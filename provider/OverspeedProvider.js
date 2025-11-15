@@ -215,6 +215,12 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
               trigger: null,
             });
             
+            // Calculate background violation metrics
+            const violationTopSpeed = Math.max(speedKmh, savedMetrics?.topSpeed || 0);
+            const violationAvgSpeed = savedMetrics?.speedReadings && savedMetrics.speedReadings.length > 0
+              ? Math.round(savedMetrics.speedReadings.reduce((a, b) => a + b, 0) / savedMetrics.speedReadings.length)
+              : speedKmh;
+            
             const violationPayload = {
               message: "Speeding violation (Background)",
               confirmed: false,
@@ -223,10 +229,10 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
                 latitude: coords.latitude,
                 longitude: coords.longitude,
               },
-              topSpeed: Math.max(speedKmh, savedMetrics?.topSpeed || 0),
-              avgSpeed: speedKmh,
-              distance: 0,
-              time: 0,
+              topSpeed: violationTopSpeed,
+              avgSpeed: violationAvgSpeed,
+              distance: savedMetrics?.totalDistance || 0,
+              time: savedMetrics?.shiftStartTime ? Math.round((now - savedMetrics.shiftStartTime) / 60000) : 0,
               zoneId: zone?.id ?? null,
               zoneCategory: zone?.category ?? "Default",
               zoneLimit: zone?.speedLimit ?? null,
@@ -273,9 +279,11 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
               coords.longitude
             );
             
-            if (distanceKm > 0.001 && distanceKm < 0.5) {
+            if (distanceKm > 0 && distanceKm < 0.5) {
               newTotalDistance += distanceKm;
               console.log("[Background] Distance updated:", newTotalDistance.toFixed(3), "km");
+            } else if (distanceKm >= 0.5) {
+              console.warn("[Background] Suspicious large distance:", distanceKm.toFixed(3), "km - possible GPS jump, skipping");
             }
           }
           
@@ -357,6 +365,9 @@ export function OverspeedProvider({ children }) {
   const currentUserIdRef = useRef(null);
   const buzzingIntervalRef = useRef(null);
   const soundObjectRef = useRef(null);
+  const violationStartLocationRef = useRef(null);
+  const violationStartTimeRef = useRef(null);
+  const violationSpeedReadingsRef = useRef([]);
 
   const onLogin = pathname === "/Login";
 
@@ -557,7 +568,7 @@ export function OverspeedProvider({ children }) {
     if (Number.isFinite(gps) && gps < 200) {
       kmh = Math.round(gps * SPEED_CORRECTION_FACTOR);
     } else if (Number.isFinite(derived) && derived < 200) {
-      kmh = Math.round(derived);
+      kmh = Math.round(derived * SPEED_CORRECTION_FACTOR);
     }
 
     const finalSpeed = kmh < 2 ? 0 : kmh;
@@ -636,6 +647,9 @@ export function OverspeedProvider({ children }) {
         if (overspeedStartTimeRef.current) {
           console.log("[OverspeedProvider] Speed back under limit, resetting grace period");
           overspeedStartTimeRef.current = null;
+          violationStartLocationRef.current = null;
+          violationStartTimeRef.current = null;
+          violationSpeedReadingsRef.current = [];
         }
         return;
       }
@@ -644,8 +658,14 @@ export function OverspeedProvider({ children }) {
       
       if (!overspeedStartTimeRef.current) {
         overspeedStartTimeRef.current = now;
+        violationStartLocationRef.current = coord;
+        violationStartTimeRef.current = now;
+        violationSpeedReadingsRef.current = [speedKmh];
         console.log("[OverspeedProvider] Started overspeeding - Speed:", speedKmh, "Limit:", limit, "Zone:", zone?.category || "Default", "- Starting 10s grace period");
         return;
+      } else {
+        // Continue tracking speed readings during overspeeding
+        violationSpeedReadingsRef.current.push(speedKmh);
       }
       
       const overspeedDuration = now - overspeedStartTimeRef.current;
@@ -684,6 +704,35 @@ export function OverspeedProvider({ children }) {
             });
         }
 
+        // Calculate violation metrics
+        let violationDistance = 0;
+        let violationTime = 0;
+        let violationAvgSpeed = Math.round(speedKmh);
+        let violationTopSpeed = Math.max(Math.round(speedKmh), topSpeed);
+
+        if (violationStartLocationRef.current && violationStartTimeRef.current) {
+          violationDistance = parseFloat(
+            calculateDistanceInKm(
+              violationStartLocationRef.current.latitude,
+              violationStartLocationRef.current.longitude,
+              coord.latitude,
+              coord.longitude
+            ).toFixed(2)
+          );
+          violationTime = Math.round((now - violationStartTimeRef.current) / 60000);
+          
+          if (violationSpeedReadingsRef.current.length > 0) {
+            const sum = violationSpeedReadingsRef.current.reduce((a, b) => a + b, 0);
+            violationAvgSpeed = Math.round(sum / violationSpeedReadingsRef.current.length);
+            violationTopSpeed = Math.max(...violationSpeedReadingsRef.current, topSpeed);
+          }
+        }
+
+        // Reset violation tracking
+        violationStartLocationRef.current = null;
+        violationStartTimeRef.current = null;
+        violationSpeedReadingsRef.current = [];
+
         const userRef = doc(db, "users", uid);
         const payload = {
           message: "Speeding violation",
@@ -693,10 +742,10 @@ export function OverspeedProvider({ children }) {
             latitude: coord.latitude,
             longitude: coord.longitude,
           },
-          topSpeed: Math.max(Math.round(speedKmh), topSpeed),
-          avgSpeed: Math.round(speedKmh),
-          distance: 0,
-          time: 0,
+          topSpeed: violationTopSpeed,
+          avgSpeed: violationAvgSpeed,
+          distance: violationDistance,
+          time: violationTime,
           zoneId: zone?.id ?? null,
           zoneCategory: zone?.category ?? "Default",
           zoneLimit: zone?.speedLimit ?? null,
@@ -1053,7 +1102,7 @@ export function OverspeedProvider({ children }) {
                   newLocation.longitude
                 );
                 
-                if (distanceKm > 0.001 && distanceKm < 0.5) {
+                if (distanceKm > 0 && distanceKm < 0.5) {
                   setTotalDistance(prev => {
                     const newTotal = prev + distanceKm;
                     

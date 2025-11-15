@@ -1,4 +1,15 @@
-# Welcome to your Expo app 👋
+# Droptimize Driver App 🚚
+
+A delivery driver tracking and management application built with React Native and Expo.
+
+## Recent Updates
+
+### Version 2.1 (November 15, 2025)
+
+- **Fixed:** Top speed calculation in violation records now accurately reflects the actual maximum speed achieved during a shift, not just the speed at the moment of violation
+- **Impact:** Driving statistics now show consistent and accurate top speeds across all record types
+
+---
 
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
 
