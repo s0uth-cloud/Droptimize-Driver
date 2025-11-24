@@ -6,26 +6,26 @@ import * as Speech from "expo-speech";
 import * as TaskManager from "expo-task-manager";
 import { onAuthStateChanged } from "firebase/auth";
 import {
-    arrayUnion,
-    doc,
-    getDoc,
-    onSnapshot,
-    serverTimestamp,
-    Timestamp,
-    updateDoc,
+  arrayUnion,
+  doc,
+  getDoc,
+  onSnapshot,
+  serverTimestamp,
+  Timestamp,
+  updateDoc,
 } from "firebase/firestore";
 import haversine from "haversine-distance";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Alert, AppState } from "react-native";
 import { auth, db } from "../firebaseConfig";
 import {
-    clearShiftMetrics,
-    clearShiftState,
-    loadShiftMetrics,
-    loadShiftState,
-    saveLastLocation,
-    saveShiftMetrics,
-    saveShiftState,
+  clearShiftMetrics,
+  clearShiftState,
+  loadShiftMetrics,
+  loadShiftState,
+  saveLastLocation,
+  saveShiftMetrics,
+  saveShiftState,
 } from "../services/storageService";
 
 Notifications.setNotificationHandler({
@@ -180,24 +180,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
             lastBackgroundViolationTime = now;
             lastBackgroundZoneId = zoneKey;
             
-            // Trigger buzzing sound and vibration (6 beeps over 3 seconds)
-            let soundCount = 0;
-            const soundInterval = setInterval(() => {
-              if (soundCount < 6) {
-                Notifications.scheduleNotificationAsync({
-                  content: {
-                    title: "⚠️ Speeding",
-                    body: `${speedKmh} km/h in ${speedLimit} km/h zone`,
-                    sound: true,
-                    priority: Notifications.AndroidNotificationPriority.HIGH,
-                  },
-                  trigger: null,
-                }).catch(err => console.error("[Background] Notification error:", err));
-                soundCount++;
-              }
-            }, 500);
-            setTimeout(() => clearInterval(soundInterval), 3000);
-            
+            // Trigger vibration only (6 buzzes over 3 seconds)
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
             const buzzInterval = setInterval(() => {
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -364,7 +347,6 @@ export function OverspeedProvider({ children }) {
   const userStatusRef = useRef("Offline");
   const currentUserIdRef = useRef(null);
   const buzzingIntervalRef = useRef(null);
-  const soundObjectRef = useRef(null);
   const violationStartLocationRef = useRef(null);
   const violationStartTimeRef = useRef(null);
   const violationSpeedReadingsRef = useRef([]);
@@ -420,27 +402,7 @@ export function OverspeedProvider({ children }) {
       return;
     }
 
-    console.log("[Buzzing] Starting 3-second buzzing sound and vibration");
-    
-    // Play notification sound repeatedly
-    let soundCount = 0;
-    const playSoundInterval = setInterval(() => {
-      if (soundCount < 6) { // Play 6 beeps over 3 seconds
-        Notifications.scheduleNotificationAsync({
-          content: {
-            title: "",
-            body: "",
-            sound: true,
-            priority: Notifications.AndroidNotificationPriority.HIGH,
-          },
-          trigger: null,
-        }).catch(err => console.error("[Buzzing] Notification sound error:", err));
-        soundCount++;
-      }
-    }, 500);
-    
-    // Store the sound interval reference
-    soundObjectRef.current = playSoundInterval;
+    console.log("[Buzzing] Starting 3-second buzzing vibration");
     
     // Immediate first vibration
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -461,16 +423,6 @@ export function OverspeedProvider({ children }) {
       console.log("[Buzzing] Stopping buzzing vibration");
       clearInterval(buzzingIntervalRef.current);
       buzzingIntervalRef.current = null;
-    }
-    
-    if (soundObjectRef.current) {
-      try {
-        console.log("[Buzzing] Stopping audio");
-        clearInterval(soundObjectRef.current);
-        soundObjectRef.current = null;
-      } catch (error) {
-        console.error("[Buzzing] Failed to stop sound:", error);
-      }
     }
   };
 
@@ -689,6 +641,18 @@ export function OverspeedProvider({ children }) {
         lastViolationTsRef.current = now;
         lastZoneViolationIdRef.current = zoneKey;
         overspeedStartTimeRef.current = null;
+
+        // Send notification (protected by cooldown above)
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: "⚠️ Speeding Violation",
+            body: `You're going ${speedKmh} km/h in a ${limit} km/h zone!`,
+            sound: true,
+            priority: Notifications.AndroidNotificationPriority.HIGH,
+            vibrate: [0, 250, 250, 250],
+          },
+          trigger: null,
+        });
 
         // Start buzzing vibration
         startBuzzing();
