@@ -350,7 +350,6 @@ export function OverspeedProvider({ children }) {
   const violationStartLocationRef = useRef(null);
   const violationStartTimeRef = useRef(null);
   const violationSpeedReadingsRef = useRef([]);
-  const hasShownOverspeedNotificationRef = useRef(false);
 
   const onLogin = pathname === "/Login";
 
@@ -603,7 +602,6 @@ export function OverspeedProvider({ children }) {
           violationStartLocationRef.current = null;
           violationStartTimeRef.current = null;
           violationSpeedReadingsRef.current = [];
-          hasShownOverspeedNotificationRef.current = false; // Reset notification flag
         }
         return;
       }
@@ -616,21 +614,6 @@ export function OverspeedProvider({ children }) {
         violationStartTimeRef.current = now;
         violationSpeedReadingsRef.current = [speedKmh];
         console.log("[OverspeedProvider] Started overspeeding - Speed:", speedKmh, "Limit:", limit, "Zone:", zone?.category || "Default", "- Starting 10s grace period");
-        
-        // Send notification only once when overspeeding starts
-        if (!hasShownOverspeedNotificationRef.current) {
-          hasShownOverspeedNotificationRef.current = true;
-          await Notifications.scheduleNotificationAsync({
-            content: {
-              title: "⚠️ Overspeeding Detected",
-              body: `You're going ${speedKmh} km/h in a ${limit} km/h zone. Slow down!`,
-              sound: true,
-              priority: Notifications.AndroidNotificationPriority.HIGH,
-            },
-            trigger: null,
-          });
-        }
-        
         return;
       } else {
         // Continue tracking speed readings during overspeeding
@@ -658,6 +641,18 @@ export function OverspeedProvider({ children }) {
         lastViolationTsRef.current = now;
         lastZoneViolationIdRef.current = zoneKey;
         overspeedStartTimeRef.current = null;
+
+        // Send notification (protected by cooldown above)
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: "⚠️ Speeding Violation",
+            body: `You're going ${speedKmh} km/h in a ${limit} km/h zone!`,
+            sound: true,
+            priority: Notifications.AndroidNotificationPriority.HIGH,
+            vibrate: [0, 250, 250, 250],
+          },
+          trigger: null,
+        });
 
         // Start buzzing vibration
         startBuzzing();
