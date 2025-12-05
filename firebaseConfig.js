@@ -2,6 +2,7 @@ import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
 import { getApps, initializeApp } from "firebase/app";
 import {
     createUserWithEmailAndPassword,
+    sendPasswordResetEmail as firebaseSendPasswordResetEmail,
     getAuth,
     getReactNativePersistence,
     initializeAuth,
@@ -131,6 +132,16 @@ export const logoutUser = async () => {
     return { success: true };
   } catch (error) {
     console.error("Logout error:", error.message);
+    return { success: false, error };
+  }
+};
+
+export const sendPasswordResetEmail = async (email) => {
+  try {
+    await firebaseSendPasswordResetEmail(auth, email);
+    return { success: true };
+  } catch (error) {
+    console.error("Password reset error:", error.message);
     return { success: false, error };
   }
 };

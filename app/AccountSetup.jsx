@@ -43,6 +43,14 @@ export default function AccountSetup() {
     truck: 1500,
   };
 
+  const vehicleWeightRanges = {
+    motorcycle: { min: 10, max: 50 },
+    tricycle: { min: 50, max: 200 },
+    car: { min: 200, max: 500 },
+    van: { min: 500, max: 1200 },
+    truck: { min: 1000, max: 3000 },
+  };
+
   useFocusEffect(
     useCallback(() => {
       loadFormData();
@@ -105,6 +113,44 @@ export default function AccountSetup() {
     saveFormData(formData, value);
   };
 
+  const handleWeightLimitChange = (text) => {
+    // Remove any non-numeric characters except decimal point
+    const cleanedText = text.replace(/[^0-9.]/g, "");
+    
+    // Prevent multiple decimal points
+    const parts = cleanedText.split(".");
+    const sanitized = parts.length > 2 ? parts[0] + "." + parts.slice(1).join("") : cleanedText;
+    
+    // If there's a vehicle type selected, enforce min/max
+    if (vehicleType && sanitized !== "") {
+      const numValue = parseFloat(sanitized);
+      const range = vehicleWeightRanges[vehicleType];
+      
+      if (!isNaN(numValue)) {
+        // Clamp the value between min and max
+        if (numValue < range.min) {
+          setCustomWeightLimit(range.min.toString());
+          setErrors((prev) => ({ 
+            ...prev, 
+            customWeightLimit: `Minimum weight is ${range.min} kg` 
+          }));
+          return;
+        } else if (numValue > range.max) {
+          setCustomWeightLimit(range.max.toString());
+          setErrors((prev) => ({ 
+            ...prev, 
+            customWeightLimit: `Maximum weight is ${range.max} kg` 
+          }));
+          return;
+        }
+      }
+    }
+    
+    // Clear error if value is valid
+    setErrors((prev) => ({ ...prev, customWeightLimit: "" }));
+    setCustomWeightLimit(sanitized);
+  };
+
   const capitalizeFirstLetter = (str) => {
     if (!str) return str;
     return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
@@ -112,12 +158,62 @@ export default function AccountSetup() {
 
   const handleSubmit = async () => {
     const newErrors = {};
-    if (!formData.address.trim()) newErrors.address = "Address is required";
-    if (!formData.phoneNumber.trim()) newErrors.phoneNumber = "Phone number is required";
-    if (!formData.joinCode.trim()) newErrors.joinCode = "Join code is required";
-    if (!formData.plateNumber.trim()) newErrors.plateNumber = "Plate number is required";
-    if (!vehicleType) newErrors.vehicleType = "Vehicle type is required";
-    if (!formData.model.trim()) newErrors.model = "Vehicle model is required";
+    
+    // Address validation
+    if (!formData.address.trim()) {
+      newErrors.address = "Address is required";
+    } else if (formData.address.trim().length < 10) {
+      newErrors.address = "Address must be at least 10 characters";
+    }
+    
+    // Phone number validation
+    if (!formData.phoneNumber.trim()) {
+      newErrors.phoneNumber = "Phone number is required";
+    } else if (!/^[0-9+\-\s()]+$/.test(formData.phoneNumber)) {
+      newErrors.phoneNumber = "Invalid phone number format";
+    } else if (formData.phoneNumber.replace(/[^0-9]/g, "").length < 10) {
+      newErrors.phoneNumber = "Phone number must have at least 10 digits";
+    }
+    
+    // Join code validation
+    if (!formData.joinCode.trim()) {
+      newErrors.joinCode = "Join code is required";
+    } else if (formData.joinCode.trim().length < 4) {
+      newErrors.joinCode = "Join code must be at least 4 characters";
+    }
+    
+    // Plate number validation
+    if (!formData.plateNumber.trim()) {
+      newErrors.plateNumber = "Plate number is required";
+    } else if (formData.plateNumber.trim().length < 2) {
+      newErrors.plateNumber = "Plate number must be at least 2 characters";
+    }
+    
+    // Vehicle type validation
+    if (!vehicleType) {
+      newErrors.vehicleType = "Vehicle type is required";
+    }
+    
+    // Vehicle model validation
+    if (!formData.model.trim()) {
+      newErrors.model = "Vehicle model is required";
+    } else if (formData.model.trim().length < 2) {
+      newErrors.model = "Vehicle model must be at least 2 characters";
+    }
+    
+    // Custom weight limit validation
+    if (customWeightLimit && vehicleType) {
+      const weight = parseFloat(customWeightLimit);
+      const range = vehicleWeightRanges[vehicleType];
+      
+      if (isNaN(weight)) {
+        newErrors.customWeightLimit = "Weight must be a valid number";
+      } else if (weight < range.min) {
+        newErrors.customWeightLimit = `Weight must be at least ${range.min} kg for ${vehicleType}`;
+      } else if (weight > range.max) {
+        newErrors.customWeightLimit = `Weight cannot exceed ${range.max} kg for ${vehicleType}`;
+      }
+    }
 
     setErrors(newErrors);
     if (Object.keys(newErrors).length > 0) return;
@@ -247,21 +343,24 @@ export default function AccountSetup() {
         {errors.vehicleType && <Text style={styles.errorText}>{errors.vehicleType}</Text>}
 
         <TextInput
-          style={[styles.input, { marginTop: 8 }]}
+          style={[styles.input, { marginTop: 8 }, errors.customWeightLimit && styles.inputError]}
           placeholder="Custom Weight Limit (kg) - Optional"
           placeholderTextColor="#999"
           value={customWeightLimit}
-          onChangeText={(text) => setCustomWeightLimit(text)}
+          onChangeText={handleWeightLimitChange}
           keyboardType="numeric"
           underlineColorAndroid="transparent"
           autoCorrect={false}
+          editable={!!vehicleType}
         />
+        {errors.customWeightLimit && <Text style={styles.errorText}>{errors.customWeightLimit}</Text>}
         {vehicleType && (
           <Text style={styles.helperText}>
             Default: {vehicleWeightLimits[vehicleType]} kg
             {customWeightLimit && parseFloat(customWeightLimit) > 0 
               ? ` → Custom: ${customWeightLimit} kg` 
               : ""}
+            {"\n"}Valid range: {vehicleWeightRanges[vehicleType].min} - {vehicleWeightRanges[vehicleType].max} kg
           </Text>
         )}
 

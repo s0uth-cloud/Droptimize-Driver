@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { ActivityIndicator, Alert, KeyboardAvoidingView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
@@ -14,6 +15,8 @@ export default function SignUp() {
   });
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const handleChange = (field, value) => setFormData((prev) => ({ ...prev, [field]: value }));
 
@@ -48,27 +51,103 @@ export default function SignUp() {
     <KeyboardAvoidingView style={styles.container} behavior="padding">
       <View style={styles.container}>
         <Text style={styles.title}>Sign Up</Text>
-        {["firstName", "lastName", "email", "password", "confirmPassword"].map((field) => (
-          <View key={field}>
+        
+        <View>
+          <TextInput
+            style={[styles.input, errors.firstName && styles.errorInput]}
+            placeholder="First Name"
+            placeholderTextColor="#999"
+            value={formData.firstName}
+            onChangeText={(text) => handleChange("firstName", text)}
+            underlineColorAndroid="transparent"
+            autoCorrect={false}
+            autoCapitalize="words"
+          />
+          {errors.firstName && <Text style={styles.errorText}>{errors.firstName}</Text>}
+        </View>
+
+        <View>
+          <TextInput
+            style={[styles.input, errors.lastName && styles.errorInput]}
+            placeholder="Last Name"
+            placeholderTextColor="#999"
+            value={formData.lastName}
+            onChangeText={(text) => handleChange("lastName", text)}
+            underlineColorAndroid="transparent"
+            autoCorrect={false}
+            autoCapitalize="words"
+          />
+          {errors.lastName && <Text style={styles.errorText}>{errors.lastName}</Text>}
+        </View>
+
+        <View>
+          <TextInput
+            style={[styles.input, errors.email && styles.errorInput]}
+            placeholder="Email"
+            placeholderTextColor="#999"
+            value={formData.email}
+            onChangeText={(text) => handleChange("email", text)}
+            underlineColorAndroid="transparent"
+            autoCorrect={false}
+            autoCapitalize="none"
+            keyboardType="email-address"
+          />
+          {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
+        </View>
+
+        <View>
+          <View style={styles.passwordContainer}>
             <TextInput
-              style={[styles.input, errors[field] && styles.errorInput]}
-              placeholder={
-                field === "firstName" ? "First Name" :
-                field === "lastName" ? "Last Name" :
-                field === "email" ? "Email" :
-                field === "password" ? "Password" : "Confirm Password"
-              }
+              style={[styles.passwordInput, errors.password && styles.errorInput]}
+              placeholder="Password"
               placeholderTextColor="#999"
-              value={formData[field]}
-              secureTextEntry={field.toLowerCase().includes("password")}
-              onChangeText={(text) => handleChange(field, text)}
+              value={formData.password}
+              secureTextEntry={!showPassword}
+              onChangeText={(text) => handleChange("password", text)}
               underlineColorAndroid="transparent"
               autoCorrect={false}
-              autoCapitalize={field === "email" ? "none" : "words"}
+              autoCapitalize="none"
             />
-            {errors[field] && <Text style={styles.errorText}>{errors[field]}</Text>}
+            <TouchableOpacity
+              style={styles.eyeButton}
+              onPress={() => setShowPassword(!showPassword)}
+            >
+              <Ionicons
+                name={showPassword ? "eye-off-outline" : "eye-outline"}
+                size={24}
+                color="#666"
+              />
+            </TouchableOpacity>
           </View>
-        ))}
+          {errors.password && <Text style={styles.errorText}>{errors.password}</Text>}
+        </View>
+
+        <View>
+          <View style={styles.passwordContainer}>
+            <TextInput
+              style={[styles.passwordInput, errors.confirmPassword && styles.errorInput]}
+              placeholder="Confirm Password"
+              placeholderTextColor="#999"
+              value={formData.confirmPassword}
+              secureTextEntry={!showConfirmPassword}
+              onChangeText={(text) => handleChange("confirmPassword", text)}
+              underlineColorAndroid="transparent"
+              autoCorrect={false}
+              autoCapitalize="none"
+            />
+            <TouchableOpacity
+              style={styles.eyeButton}
+              onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+            >
+              <Ionicons
+                name={showConfirmPassword ? "eye-off-outline" : "eye-outline"}
+                size={24}
+                color="#666"
+              />
+            </TouchableOpacity>
+          </View>
+          {errors.confirmPassword && <Text style={styles.errorText}>{errors.confirmPassword}</Text>}
+        </View>
 
         <TouchableOpacity style={styles.button} onPress={handleSignUp} disabled={loading}>
           {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Sign Up</Text>}
@@ -108,6 +187,30 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#000",
     backgroundColor: "#fff",
+  },
+  passwordContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
+    height: 50,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 6,
+    marginBottom: 4,
+    backgroundColor: "#fff",
+  },
+  passwordInput: {
+    flex: 1,
+    height: 50,
+    padding: 12,
+    fontFamily: "Lexend-Regular",
+    fontSize: 16,
+    color: "#000",
+  },
+  eyeButton: {
+    padding: 12,
+    justifyContent: "center",
+    alignItems: "center",
   },
   errorInput: { 
     borderColor: "#f21b3f" 
