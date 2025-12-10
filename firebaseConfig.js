@@ -12,11 +12,15 @@ import {
     updateProfile,
 } from "firebase/auth";
 import {
+    collection,
     doc,
     getDoc,
+    getDocs,
     getFirestore,
+    query,
     serverTimestamp,
     setDoc,
+    where,
 } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
@@ -47,10 +51,25 @@ export { auth, db, ReactNativeAsyncStorage, storage };
 
 export const registerUser = async ({ email, password, firstName, lastName }) => {
   try {
+    // Create user first with Firebase Auth
     const { user } = await createUserWithEmailAndPassword(auth, email, password);
     const fullName = `${firstName} ${lastName}`;
 
     await updateProfile(user, { displayName: fullName });
+    
+    // Now check if email already exists in Firestore (should not happen, but just in case)
+    const usersRef = collection(db, "users");
+    const emailQuery = query(usersRef, where("email", "==", email.toLowerCase().trim()));
+    const emailSnapshot = await getDocs(emailQuery);
+    
+    if (!emailSnapshot.empty) {
+      // Clean up the auth user if Firestore document already exists
+      await user.delete();
+      return { 
+        success: false, 
+        error: { message: "This email is already registered. Please use a different email or login." } 
+      };
+    }
     
     await setDoc(doc(db, "users", user.uid), {
       uid: user.uid,

@@ -9,7 +9,7 @@ export default function ParcelDetailsModal({ visible, parcel, onClose, onUpdateS
 
   const [items, setItems] = useState([
     { label: "Delivered", value: "Delivered" },
-    { label: "Cancelled", value: "Cancelled" },
+    { label: "Failed", value: "Failed" },
   ]);
 
   useEffect(() => {

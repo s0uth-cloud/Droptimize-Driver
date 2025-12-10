@@ -1,13 +1,13 @@
 import { collection, doc, onSnapshot, query, updateDoc, where } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    FlatList,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import ParcelDetailsModal from "../components/ParcelDetailsModal";
 import { auth, db } from "../firebaseConfig";
@@ -23,7 +23,7 @@ export default function Parcels() {
     "To Deliver": "#ff9914",
     "Out for Delivery": "#ff9914",
     Delivered: "#29bf12",
-    Cancelled: "#f21b3f",
+    Failed: "#f21b3f",
   };
 
   useEffect(() => {
@@ -59,10 +59,16 @@ export default function Parcels() {
   const handleUpdateStatus = async (parcelId, newStatus) => {
     try {
       const parcelRef = doc(db, "parcels", parcelId);
-      await updateDoc(parcelRef, {
+      const updateData = {
         status: newStatus,
         updatedAt: new Date(),
-      });
+      };
+      if (newStatus === "Delivered") {
+        updateData.DeliveredAt = new Date();
+      } else if (newStatus === "Failed") {
+        updateData.FailedAt = new Date();
+      }
+      await updateDoc(parcelRef, updateData);
       setParcels((prev) =>
         prev.map((p) =>
           p.parcelId === parcelId ? { ...p, status: newStatus } : p
@@ -80,7 +86,7 @@ export default function Parcels() {
       return p.status === "To Deliver" || p.status === "Out for Delivery";
     } else {
       if (historyFilter === "All") {
-        return ["Delivered", "Cancelled"].includes(p.status);
+        return ["Delivered", "Failed"].includes(p.status);
       }
       return p.status === historyFilter;
     }
@@ -137,11 +143,11 @@ export default function Parcels() {
       {/* History Filter */}
       {selectedTab === "history" && (
         <View style={styles.filterContainer}>
-          {["All", "Delivered", "Cancelled"].map((status) => {
+          {["All", "Delivered", "Failed"].map((status) => {
             const colors = {
               All: "#00b2e1",
               Delivered: "#29bf12",
-              Cancelled: "#f21b3f",
+              Failed: "#f21b3f",
             };
 
             return (

@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, KeyboardAvoidingView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import DropDownPicker from "react-native-dropdown-picker";
@@ -121,32 +121,7 @@ export default function AccountSetup() {
     const parts = cleanedText.split(".");
     const sanitized = parts.length > 2 ? parts[0] + "." + parts.slice(1).join("") : cleanedText;
     
-    // If there's a vehicle type selected, enforce min/max
-    if (vehicleType && sanitized !== "") {
-      const numValue = parseFloat(sanitized);
-      const range = vehicleWeightRanges[vehicleType];
-      
-      if (!isNaN(numValue)) {
-        // Clamp the value between min and max
-        if (numValue < range.min) {
-          setCustomWeightLimit(range.min.toString());
-          setErrors((prev) => ({ 
-            ...prev, 
-            customWeightLimit: `Minimum weight is ${range.min} kg` 
-          }));
-          return;
-        } else if (numValue > range.max) {
-          setCustomWeightLimit(range.max.toString());
-          setErrors((prev) => ({ 
-            ...prev, 
-            customWeightLimit: `Maximum weight is ${range.max} kg` 
-          }));
-          return;
-        }
-      }
-    }
-    
-    // Clear error if value is valid
+    // Clear error when user is typing
     setErrors((prev) => ({ ...prev, customWeightLimit: "" }));
     setCustomWeightLimit(sanitized);
   };
@@ -175,10 +150,8 @@ export default function AccountSetup() {
       newErrors.phoneNumber = "Phone number must have at least 10 digits";
     }
     
-    // Join code validation
-    if (!formData.joinCode.trim()) {
-      newErrors.joinCode = "Join code is required";
-    } else if (formData.joinCode.trim().length < 4) {
+    // Join code validation (optional)
+    if (formData.joinCode.trim() && formData.joinCode.trim().length < 4) {
       newErrors.joinCode = "Join code must be at least 4 characters";
     }
     
@@ -228,12 +201,29 @@ export default function AccountSetup() {
         return;
       }
 
-      const branchRef = doc(db, "branches", formData.joinCode);
-      const branchSnap = await getDoc(branchRef);
-      if (!branchSnap.exists()) {
-        setErrors({ joinCode: "Invalid join code" });
+      // Check for duplicate plate number
+      const usersRef = collection(db, "users");
+      const plateQuery = query(usersRef, where("plateNumber", "==", formData.plateNumber.toUpperCase().trim()));
+      const plateSnapshot = await getDocs(plateQuery);
+      
+      // Check if any existing user (other than current user) has this plate number
+      const duplicatePlate = plateSnapshot.docs.find(doc => doc.id !== currentUser.uid);
+      if (duplicatePlate) {
+        setErrors({ plateNumber: "This plate number is already registered. Please use a different plate number." });
         setLoading(false);
         return;
+      }
+
+      let branchId = null;
+      if (formData.joinCode.trim()) {
+        const branchRef = doc(db, "branches", formData.joinCode);
+        const branchSnap = await getDoc(branchRef);
+        if (!branchSnap.exists()) {
+          setErrors({ joinCode: "Invalid join code" });
+          setLoading(false);
+          return;
+        }
+        branchId = branchRef.id;
       }
 
       const userRef = doc(db, "users", currentUser.uid);
@@ -250,7 +240,7 @@ export default function AccountSetup() {
           {
             address: formData.address,
             phoneNumber: formData.phoneNumber,
-            branchId: branchRef.id,
+            branchId: branchId,
             plateNumber: formData.plateNumber,
             vehicleType: capitalizedVehicleType,
             vehicleWeightLimit: weightLimit,
@@ -269,7 +259,7 @@ export default function AccountSetup() {
           photoURL: currentUser.photoURL || "",
           address: formData.address,
           phoneNumber: formData.phoneNumber,
-          branchId: branchRef.id,
+          branchId: branchId,
           plateNumber: formData.plateNumber,
           vehicleType: capitalizedVehicleType,
           vehicleWeightLimit: weightLimit,
@@ -367,7 +357,7 @@ export default function AccountSetup() {
         <View style={[styles.inputWrapper, errors.joinCode && styles.inputError]}>
           <TextInput
             style={styles.joinCodeInput}
-            placeholder="Company Join Code"
+            placeholder="Company Join Code (Optional)"
             placeholderTextColor="#999"
             value={formData.joinCode}
             onChangeText={(text) => handleChange("joinCode", text)}
@@ -383,6 +373,9 @@ export default function AccountSetup() {
           </TouchableOpacity>
         </View>
         {errors.joinCode && <Text style={styles.errorText}>{errors.joinCode}</Text>}
+        {!formData.joinCode.trim() && !errors.joinCode && (
+          <Text style={styles.helperText}>You can join a branch later from your profile</Text>
+        )}
         {errors.general && <Text style={styles.errorText}>{errors.general}</Text>}
 
         <TouchableOpacity style={styles.button} onPress={handleSubmit} disabled={loading}>

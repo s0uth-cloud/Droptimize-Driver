@@ -1,4 +1,4 @@
-import { useRouter } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import { useState } from "react";
 import { ActivityIndicator, Alert, KeyboardAvoidingView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { sendPasswordResetEmail } from "../firebaseConfig";
@@ -44,10 +44,11 @@ export default function ResetPassword() {
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior="padding">
+      <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.content}>
         <Text style={styles.title}>Reset Password</Text>
         <Text style={styles.description}>
-          Enter your email address and we&apos;ll send you instructions to reset your password.
+          Enter your email address to reset your password.
         </Text>
 
         <TextInput
@@ -74,7 +75,7 @@ export default function ResetPassword() {
           {loading ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.buttonText}>Send Reset Email</Text>
+            <Text style={styles.buttonText}>Submit</Text>
           )}
         </TouchableOpacity>
 

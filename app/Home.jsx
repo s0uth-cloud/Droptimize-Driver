@@ -83,6 +83,32 @@ export default function Home() {
     return () => unsub();
   }, [user]);
 
+  // Real-time listener for parcels
+  useEffect(() => {
+    if (!user) return;
+    const q = query(
+      collection(db, "parcels"),
+      where("driverUid", "==", user.uid),
+      where("status", "==", "Out for Delivery")
+    );
+    const unsub = onSnapshot(q, (snapshot) => {
+      const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      setDeliveries(list);
+
+      if (userData?.preferredRoutes && list.length > 0) {
+        const ordered = list.sort((a, b) => {
+          const aIndex = userData.preferredRoutes.indexOf(a.municipality);
+          const bIndex = userData.preferredRoutes.indexOf(b.municipality);
+          return aIndex - bIndex;
+        });
+        setNextDelivery(ordered[0]);
+      } else {
+        setNextDelivery(null);
+      }
+    });
+    return () => unsub();
+  }, [user, userData]);
+
   const fetchParcels = async (data) => {
     if (!user) return;
     const q = query(
@@ -269,12 +295,28 @@ export default function Home() {
 
   const status = userData?.status || "Offline";
   const hasParcels = deliveries.length > 0;
+  const hasJoinedBranch = userData?.branchId;
 
   return (
     <SafeAreaView style={styles.safe} edges={["left", "right"]}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={[styles.topSection, { minHeight: screenWidth * 0.6 }]}>
-          {status === "Offline" && (
+          {!hasJoinedBranch && (
+            <>
+              <Text style={styles.greeting}>
+                Welcome, {userData?.firstName || "Driver"} 👋
+              </Text>
+              <Text style={styles.subheading}>Join a branch to start receiving deliveries</Text>
+              <TouchableOpacity
+                style={[styles.startShiftButton, { width: screenWidth * 0.45 }]}
+                onPress={() => router.push("/JoinBranch")}
+              >
+                <Text style={styles.startShiftText}>Join Branch</Text>
+              </TouchableOpacity>
+            </>
+          )}
+          
+          {hasJoinedBranch && status === "Offline" && (
             <>
               <Text style={styles.greeting}>
                 Welcome Back, {userData?.firstName || "Driver"} 👋
@@ -294,7 +336,7 @@ export default function Home() {
             </>
           )}
 
-          {status === "Available" && (
+          {hasJoinedBranch && status === "Available" && (
             <View style={styles.statusBox}>
               <Text style={styles.statusLabel}>
                 Status:{" "}
@@ -304,9 +346,17 @@ export default function Home() {
               </Text>
 
               {!hasParcels ? (
-                <Text style={styles.waitText}>
-                  Waiting for parcels to be assigned...
-                </Text>
+                <>
+                  <Text style={styles.waitText}>
+                    Waiting for parcels to be assigned...
+                  </Text>
+                  <TouchableOpacity
+                    style={[styles.scanParcelButton, { width: screenWidth * 0.5 }]}
+                    onPress={() => router.push("/ScanParcel")}
+                  >
+                    <Text style={styles.scanParcelText}>Scan Parcel</Text>
+                  </TouchableOpacity>
+                </>
               ) : (
                 <>
                   <Text style={styles.waitText}>
@@ -341,7 +391,7 @@ export default function Home() {
             </View>
           )}
 
-          {status === "Delivering" && (
+          {hasJoinedBranch && status === "Delivering" && (
             <View style={styles.shiftCard}>
               <Text style={styles.statusLabel}>
                 Status:{" "}
@@ -559,6 +609,30 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 3,
     elevation: 3,
+  },
+  scanParcelButton: {
+    height: 48,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#00b2e1",
+    borderRadius: 10,
+    marginTop: 16,
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  scanParcelText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#fff",
+  },
+  buttonRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    width: "100%",
+    gap: 8,
   },
   cancelText: {
     fontSize: 16,

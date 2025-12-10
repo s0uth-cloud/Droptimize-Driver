@@ -35,6 +35,17 @@ export default function ScanQR() {
     <View style={{ flex: 1 }}>
       <CameraView style={{ flex: 1 }} onBarcodeScanned={handleBarcodeScanned} />
 
+      {/* Scanner Guide Lines */}
+      <View style={styles.scannerOverlay}>
+        <View style={styles.scannerFrame}>
+          <View style={[styles.corner, styles.cornerTopLeft]} />
+          <View style={[styles.corner, styles.cornerTopRight]} />
+          <View style={[styles.corner, styles.cornerBottomLeft]} />
+          <View style={[styles.corner, styles.cornerBottomRight]} />
+        </View>
+        <Text style={styles.scannerText}>Position QR code within the frame</Text>
+      </View>
+
       <View style={styles.footer}>
         <TouchableOpacity style={styles.cancelButton} onPress={() => router.dismiss()}>
           <Text style={styles.cancelText}>Cancel</Text>
@@ -65,6 +76,62 @@ const styles = StyleSheet.create({
   buttonText: {
     color: "#fff",
     fontWeight: "bold",
+  },
+  scannerOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+    pointerEvents: "none",
+  },
+  scannerFrame: {
+    width: 250,
+    height: 250,
+    position: "relative",
+  },
+  corner: {
+    position: "absolute",
+    width: 40,
+    height: 40,
+    borderColor: "#00b2e1",
+  },
+  cornerTopLeft: {
+    top: 0,
+    left: 0,
+    borderTopWidth: 4,
+    borderLeftWidth: 4,
+  },
+  cornerTopRight: {
+    top: 0,
+    right: 0,
+    borderTopWidth: 4,
+    borderRightWidth: 4,
+  },
+  cornerBottomLeft: {
+    bottom: 0,
+    left: 0,
+    borderBottomWidth: 4,
+    borderLeftWidth: 4,
+  },
+  cornerBottomRight: {
+    bottom: 0,
+    right: 0,
+    borderBottomWidth: 4,
+    borderRightWidth: 4,
+  },
+  scannerText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+    marginTop: 20,
+    textAlign: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
   },
   footer: {
     position: "absolute",
