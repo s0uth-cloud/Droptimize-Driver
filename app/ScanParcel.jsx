@@ -1,8 +1,28 @@
+// External dependencies
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Stack, useRouter } from "expo-router";
-import { doc, getDoc, serverTimestamp, updateDoc, writeBatch } from "firebase/firestore";
 import { useState } from "react";
-import { ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+    ActivityIndicator,
+    Alert,
+    Modal,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+} from "react-native";
+
+// Firebase imports
+import {
+    doc,
+    getDoc,
+    serverTimestamp,
+    updateDoc,
+    writeBatch,
+} from "firebase/firestore";
+
+// Internal dependencies
 import { auth, db } from "../firebaseConfig";
 
 export default function ScanParcel() {
@@ -27,6 +47,11 @@ export default function ScanParcel() {
     );
   }
 
+  /**
+   * Processes scanned QR codes from admin-generated assignment codes, validating the QR format, verifying it's an assignment type, fetching assignment details from Firestore, and ensuring the assignment belongs to the current driver.
+   * Performs multiple validation checks including assignment existence, driver matching, and acceptance status before displaying the assignment modal.
+   * Handles errors gracefully with descriptive alerts for each failure scenario (invalid format, wrong driver, already accepted, etc.) and allows rescanning by resetting the scanner state.
+   */
   const handleBarcodeScanned = async ({ data }) => {
     if (scanned) return;
     setScanned(true);
@@ -39,7 +64,7 @@ export default function ScanParcel() {
       let qrData;
       try {
         qrData = JSON.parse(data);
-      } catch (e) {
+      } catch (_e) {
         Alert.alert("Error", "Invalid QR code format. Please scan a valid assignment QR code.");
         setScanned(false);
         setLoading(false);
@@ -119,6 +144,11 @@ export default function ScanParcel() {
     }
   };
 
+  /**
+   * Accepts the scanned assignment by using a Firestore batch write to atomically update all assigned parcels with the driver's information and change their status to "Out for Delivery".
+   * Validates that the driver has joined a branch before accepting, updates the assignment document status to "accepted" with a timestamp, and commits all changes in a single transaction to ensure data consistency.
+   * On success, displays the number of accepted parcels and navigates back to the home screen, while handling errors with detailed messages about Firestore rule deployment.
+   */
   const handleAcceptAssignment = async () => {
     const currentUser = auth.currentUser;
     if (!currentUser) {
@@ -190,6 +220,11 @@ export default function ScanParcel() {
     }
   };
 
+  /**
+   * Prompts the driver with a confirmation alert before rejecting the scanned assignment.
+   * Updates the assignment document in Firestore with a "rejected" status and rejection timestamp, then closes the assignment modal and resets the scanner to allow scanning another QR code.
+   * Uses a small delay after closing the modal to ensure smooth UI transitions before re-enabling the scanner.
+   */
   const handleRejectAssignment = () => {
     Alert.alert(
       "Reject Assignment",
@@ -269,7 +304,13 @@ export default function ScanParcel() {
       <View style={styles.footer}>
         <TouchableOpacity 
           style={styles.cancelButton} 
-          onPress={() => router.back()}
+          onPress={() => {
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace('/Home');
+            }
+          }}
         >
           <Text style={styles.cancelText}>Cancel</Text>
         </TouchableOpacity>

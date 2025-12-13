@@ -1,3 +1,4 @@
+// External dependencies
 import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
 import { getApps, initializeApp } from "firebase/app";
 import {
@@ -49,6 +50,12 @@ const storage = getStorage(app);
 
 export { auth, db, ReactNativeAsyncStorage, storage };
 
+/**
+ * Registers a new user by creating a Firebase Auth account, initializing their Firestore profile with default driver settings, and sending an email verification. 
+ * The function performs email uniqueness validation in Firestore and automatically cleans up the auth account if a duplicate is found. 
+ * Upon successful registration, the user data is persisted to AsyncStorage for session management.
+ * Returns an object with success status, the created user object, or an error message.
+ */
 export const registerUser = async ({ email, password, firstName, lastName }) => {
   try {
     // Create user first with Firebase Auth
@@ -106,6 +113,11 @@ export const registerUser = async ({ email, password, firstName, lastName }) => 
   }
 };
 
+/**
+ * Authenticates an existing user with email and password credentials using Firebase Auth.
+ * On successful login, the user's basic information (uid, email, displayName) is stored in AsyncStorage to maintain the session across app restarts.
+ * Returns an object with success status, the authenticated user object, or an error message if authentication fails.
+ */
 export const loginUser = async (email, password) => {
   try {
     const { user } = await signInWithEmailAndPassword(auth, email, password);
@@ -124,6 +136,11 @@ export const loginUser = async (email, password) => {
   }
 };
 
+/**
+ * Checks the current authentication state and retrieves the user's complete profile data from Firestore.
+ * This function listens for auth state changes once, unsubscribes immediately, and returns a promise that resolves with authentication status, email verification status, and merged user data from both Firebase Auth and Firestore.
+ * Used during app initialization to restore user sessions and verify authentication before allowing access to protected screens.
+ */
 export const checkAuth = () =>
   new Promise((resolve) => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -144,6 +161,11 @@ export const checkAuth = () =>
     });
   });
 
+/**
+ * Signs out the current user from Firebase Auth and clears all user data from AsyncStorage.
+ * This ensures a clean logout by removing both the server-side authentication session and local cached user information.
+ * Returns an object with success status or an error message if the logout process fails.
+ */
 export const logoutUser = async () => {
   try {
     await auth.signOut();
@@ -155,6 +177,11 @@ export const logoutUser = async () => {
   }
 };
 
+/**
+ * Sends a password reset email to the specified email address using Firebase Auth's built-in password recovery functionality.
+ * The email contains a secure link that allows users to reset their password without requiring their current credentials.
+ * Returns an object with success status or an error message if the email cannot be sent (e.g., email not found).
+ */
 export const sendPasswordResetEmail = async (email) => {
   try {
     await firebaseSendPasswordResetEmail(auth, email);

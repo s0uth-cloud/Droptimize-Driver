@@ -29,7 +29,13 @@ export default function ResetPassword() {
         Alert.alert(
           "Success",
           "Password reset email sent! Please check your inbox.",
-          [{ text: "OK", onPress: () => router.back() }]
+          [{ text: "OK", onPress: () => {
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace('/Login');
+            }
+          }}]
         );
       } else {
         setError(result.error.message || "Failed to send reset email");
@@ -79,7 +85,13 @@ export default function ResetPassword() {
           )}
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => router.back()}>
+        <TouchableOpacity onPress={() => {
+          if (router.canGoBack()) {
+            router.back();
+          } else {
+            router.replace('/Login');
+          }
+        }}>
           <Text style={styles.link}>Back to Login</Text>
         </TouchableOpacity>
       </View>

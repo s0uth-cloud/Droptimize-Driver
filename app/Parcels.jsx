@@ -1,3 +1,4 @@
+// External dependencies
 import { collection, doc, onSnapshot, query, updateDoc, where } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
@@ -9,9 +10,17 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
+
+// Internal dependencies
 import ParcelDetailsModal from "../components/ParcelDetailsModal";
 import { auth, db } from "../firebaseConfig";
 
+/**
+ * Displays driver's assigned parcels with filtering by delivery status and history.
+ * Shows tabs for "To Deliver" (active) and "History" (completed/failed) parcels.
+ * Implements real-time updates using Firestore onSnapshot, status-based filtering, and parcel detail modal for status updates.
+ * Color-codes parcels by status and provides status update functionality through ParcelDetailsModal.
+ */
 export default function Parcels() {
   const [selectedTab, setSelectedTab] = useState("toDeliver");
   const [parcels, setParcels] = useState([]);
@@ -56,6 +65,10 @@ export default function Parcels() {
     return () => unsubscribe();
   }, []);
 
+  /**
+   * Updates parcel status in Firestore with appropriate timestamps (DeliveredAt or FailedAt).
+   * Adds timestamp based on new status and shows alert on success or error.
+   */
   const handleUpdateStatus = async (parcelId, newStatus) => {
     try {
       const parcelRef = doc(db, "parcels", parcelId);

@@ -1,9 +1,18 @@
+// External dependencies
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { ActivityIndicator, Alert, KeyboardAvoidingView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+
+// Internal dependencies
 import { registerUser } from "../firebaseConfig";
 
+/**
+ * Driver registration screen with comprehensive form validation.
+ * Collects firstName, lastName, email, password, and confirmPassword with real-time validation.
+ * Validates email format, password matching, and required fields before creating Firebase Auth account.
+ * Sends email verification and navigates to AccountSetup on successful registration.
+ */
 export default function SignUp() {
   const router = useRouter();
   const [formData, setFormData] = useState({
@@ -20,6 +29,11 @@ export default function SignUp() {
 
   const handleChange = (field, value) => setFormData((prev) => ({ ...prev, [field]: value }));
 
+  /**
+   * Handles signup submission with comprehensive validation (required fields, email format, password matching).
+   * Calls registerUser from firebaseConfig to create Firebase Auth account and initial Firestore user document.
+   * Navigates to AccountSetup on success or displays error alert on failure.
+   */
   const handleSignUp = async () => {
     const { email, password, confirmPassword, firstName, lastName } = formData;
     const newErrors = {};

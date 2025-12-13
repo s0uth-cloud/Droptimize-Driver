@@ -24,39 +24,53 @@ export default function PreferredRoutesSetup() {
   const [editIndex, setEditIndex] = useState(null);
 
   useEffect(() => {
-    axios.get("https://psgc.gitlab.io/api/regions/").then((res) => setRegions(res.data));
+    axios.get("https://psgc.gitlab.io/api/regions/")
+      .then((res) => setRegions(res.data))
+      .catch((err) => console.error("Failed to fetch regions:", err));
   }, []);
 
   useEffect(() => {
     if (selectedRegion && editIndex === null) {
-      axios.get(`https://psgc.gitlab.io/api/regions/${selectedRegion}/provinces/`).then((res) => setProvinces(res.data));
+      axios.get(`https://psgc.gitlab.io/api/regions/${selectedRegion}/provinces/`)
+        .then((res) => setProvinces(res.data))
+        .catch((err) => console.error("Failed to fetch provinces:", err));
       setSelectedProvince(null);
       setSelectedCity(null);
       setSelectedBarangay([]);
       setCities([]);
       setBarangays([]);
     } else if (selectedRegion && editIndex !== null) {
-      axios.get(`https://psgc.gitlab.io/api/regions/${selectedRegion}/provinces/`).then((res) => setProvinces(res.data));
+      axios.get(`https://psgc.gitlab.io/api/regions/${selectedRegion}/provinces/`)
+        .then((res) => setProvinces(res.data))
+        .catch((err) => console.error("Failed to fetch provinces:", err));
     }
   }, [selectedRegion]);
 
   useEffect(() => {
     if (selectedProvince && editIndex === null) {
-      axios.get(`https://psgc.gitlab.io/api/provinces/${selectedProvince}/cities-municipalities/`).then((res) => setCities(res.data));
+      axios.get(`https://psgc.gitlab.io/api/provinces/${selectedProvince}/cities-municipalities/`)
+        .then((res) => setCities(res.data))
+        .catch((err) => console.error("Failed to fetch cities:", err));
       setSelectedCity(null);
       setSelectedBarangay([]);
       setBarangays([]);
     } else if (selectedProvince && editIndex !== null) {
-      axios.get(`https://psgc.gitlab.io/api/provinces/${selectedProvince}/cities-municipalities/`).then((res) => setCities(res.data));
+      axios.get(`https://psgc.gitlab.io/api/provinces/${selectedProvince}/cities-municipalities/`)
+        .then((res) => setCities(res.data))
+        .catch((err) => console.error("Failed to fetch cities:", err));
     }
   }, [selectedProvince]);
 
   useEffect(() => {
     if (selectedCity && editIndex === null) {
-      axios.get(`https://psgc.gitlab.io/api/cities-municipalities/${selectedCity}/barangays/`).then((res) => setBarangays(res.data));
+      axios.get(`https://psgc.gitlab.io/api/cities-municipalities/${selectedCity}/barangays/`)
+        .then((res) => setBarangays(res.data))
+        .catch((err) => console.error("Failed to fetch barangays:", err));
       setSelectedBarangay([]);
     } else if (selectedCity && editIndex !== null) {
-      axios.get(`https://psgc.gitlab.io/api/cities-municipalities/${selectedCity}/barangays/`).then((res) => setBarangays(res.data));
+      axios.get(`https://psgc.gitlab.io/api/cities-municipalities/${selectedCity}/barangays/`)
+        .then((res) => setBarangays(res.data))
+        .catch((err) => console.error("Failed to fetch barangays:", err));
     }
   }, [selectedCity]);
 

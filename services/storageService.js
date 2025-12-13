@@ -1,11 +1,18 @@
+// External dependencies
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+// Storage keys for AsyncStorage persistence
 const STORAGE_KEYS = {
   SHIFT_METRICS: '@droptimize:shift_metrics',
   SHIFT_STATE: '@droptimize:shift_state',
   LAST_LOCATION: '@droptimize:last_location',
 };
 
+/**
+ * Persists shift metrics to AsyncStorage including top speed, total distance, average speed, shift start time, speed readings array, and last location coordinates.
+ * Adds a timestamp to track when metrics were saved, and logs the saved data for debugging purposes.
+ * Used to preserve shift data across app restarts and crashes during active shifts.
+ */
 export const saveShiftMetrics = async (metrics) => {
   try {
     const data = {
@@ -24,6 +31,11 @@ export const saveShiftMetrics = async (metrics) => {
   }
 };
 
+/**
+ * Retrieves previously saved shift metrics from AsyncStorage to restore shift state after app restart.
+ * Parses the stored JSON data and returns the metrics object with topSpeed, totalDistance, avgSpeed, shiftStartTime, speedReadings, and lastLocationCoords, or null if no data exists.
+ * Handles errors gracefully by logging and returning null to allow shift initialization from scratch.
+ */
 export const loadShiftMetrics = async () => {
   try {
     const data = await AsyncStorage.getItem(STORAGE_KEYS.SHIFT_METRICS);
@@ -39,6 +51,10 @@ export const loadShiftMetrics = async () => {
   }
 };
 
+/**
+ * Removes shift metrics data from AsyncStorage, typically called when a shift is ended or cancelled.
+ * Ensures old shift data doesn't persist into new shifts and logs the operation for debugging.
+ */
 export const clearShiftMetrics = async () => {
   try {
     await AsyncStorage.removeItem(STORAGE_KEYS.SHIFT_METRICS);
@@ -48,6 +64,10 @@ export const clearShiftMetrics = async () => {
   }
 };
 
+/**
+ * Saves the current shift state (active/inactive) and associated user ID to AsyncStorage with a timestamp.
+ * Used to track whether a driver has an active shift across app sessions, enabling shift recovery after app crashes or restarts.
+ */
 export const saveShiftState = async (isActive, uid) => {
   try {
     const data = { isActive, uid, timestamp: Date.now() };
@@ -58,6 +78,10 @@ export const saveShiftState = async (isActive, uid) => {
   }
 };
 
+/**
+ * Retrieves the saved shift state from AsyncStorage, returning an object with isActive flag, uid, and timestamp.
+ * Returns null if no shift state exists, allowing the app to initialize with a clean state.
+ */
 export const loadShiftState = async () => {
   try {
     const data = await AsyncStorage.getItem(STORAGE_KEYS.SHIFT_STATE);
@@ -73,6 +97,10 @@ export const loadShiftState = async () => {
   }
 };
 
+/**
+ * Removes shift state data from AsyncStorage when a shift is completed or cancelled.
+ * Ensures the app starts fresh without active shift indicators on the next launch.
+ */
 export const clearShiftState = async () => {
   try {
     await AsyncStorage.removeItem(STORAGE_KEYS.SHIFT_STATE);
@@ -82,6 +110,10 @@ export const clearShiftState = async () => {
   }
 };
 
+/**
+ * Stores the driver's last known GPS location to AsyncStorage for quick access on app restart.
+ * Used to initialize maps and location services without waiting for fresh GPS data.
+ */
 export const saveLastLocation = async (location) => {
   try {
     await AsyncStorage.setItem(STORAGE_KEYS.LAST_LOCATION, JSON.stringify(location));
@@ -90,6 +122,10 @@ export const saveLastLocation = async (location) => {
   }
 };
 
+/**
+ * Retrieves the last saved GPS location from AsyncStorage, returning the location object or null if not found.
+ * Provides cached location data for faster initial map rendering before fresh GPS coordinates are available.
+ */
 export const loadLastLocation = async () => {
   try {
     const data = await AsyncStorage.getItem(STORAGE_KEYS.LAST_LOCATION);

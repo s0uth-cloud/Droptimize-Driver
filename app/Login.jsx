@@ -1,10 +1,18 @@
+// External dependencies
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { doc, getDoc } from "firebase/firestore";
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+
+// Internal dependencies
 import { db, loginUser } from "../firebaseConfig";
 
+/**
+ * Driver login screen with email and password authentication.
+ * Validates credentials, authenticates with Firebase Auth, checks account setup completion status, and navigates to appropriate screen (Home if setup complete, AccountSetup if not).
+ * Displays validation errors and Firebase authentication errors with user-friendly messages.
+ */
 export default function Login() {
   const router = useRouter();
   const [formData, setFormData] = useState({ email: "", password: "" });
@@ -18,6 +26,10 @@ export default function Login() {
     setErrors((prev) => ({ ...prev, [name]: "" }));
   };
 
+  /**
+   * Validates login form fields (email and password presence).
+   * Returns true if valid, false otherwise, and updates errors state.
+   */
   const validate = () => {
     const newErrors = {};
     if (!formData.email.trim()) newErrors.email = "Email is required";
@@ -26,6 +38,10 @@ export default function Login() {
     return Object.keys(newErrors).length === 0;
   };
 
+  /**
+   * Handles login submission by validating form, authenticating with Firebase, checking account setup status, and navigating to appropriate screen.
+   * Fetches user document from Firestore to determine if account setup is complete.
+   */
   const handleLogin = async () => {
     setFirebaseError("");
     if (!validate()) return;

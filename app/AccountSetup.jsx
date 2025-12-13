@@ -1,10 +1,32 @@
+// External dependencies
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import {
+    ActivityIndicator,
+    KeyboardAvoidingView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from "react-native";
 import DropDownPicker from "react-native-dropdown-picker";
+
+// Firebase imports
+import {
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    query,
+    serverTimestamp,
+    setDoc,
+    where,
+} from "firebase/firestore";
+
+// Internal dependencies
 import { auth, db } from "../firebaseConfig";
 
 const FORM_STORAGE_KEY = "@account_setup_form";
@@ -78,6 +100,10 @@ export default function AccountSetup() {
     }
   };
 
+  /**
+   * Retrieves previously saved form data from AsyncStorage to restore the user's progress if they navigated away before completing setup.
+   * Parses and loads saved values for address, phone number, join code, plate number, vehicle model, vehicle type, and custom weight limit.
+   */
   const loadFormData = async () => {
     try {
       const saved = await AsyncStorage.getItem(FORM_STORAGE_KEY);
@@ -92,6 +118,9 @@ export default function AccountSetup() {
     }
   };
 
+  /**
+   * Removes the saved account setup form data from AsyncStorage after successful submission to prevent old data from being loaded in future sessions.
+   */
   const clearFormData = async () => {
     try {
       await AsyncStorage.removeItem(FORM_STORAGE_KEY);
@@ -100,6 +129,10 @@ export default function AccountSetup() {
     }
   };
 
+  /**
+   * Updates a specific form field value in state and automatically persists the entire form data to AsyncStorage.
+   * Used for handling text input changes for address, phone number, join code, plate number, and vehicle model fields.
+   */
   const handleChange = (field, value) => {
     setFormData((prev) => {
       const updated = { ...prev, [field]: value };
@@ -108,11 +141,19 @@ export default function AccountSetup() {
     });
   };
 
+  /**
+   * Updates the vehicle type selection and saves the form data to AsyncStorage to preserve the user's choice.
+   * Triggers the display of custom weight limit input based on vehicle type selection.
+   */
   const handleVehicleTypeChange = (value) => {
     setVehicleType(value);
     saveFormData(formData, value);
   };
 
+  /**
+   * Sanitizes custom weight limit input by removing non-numeric characters (except decimal point), preventing multiple decimal points, and clearing validation errors as the user types.
+   * Ensures only valid numeric input is accepted for vehicle weight capacity.
+   */
   const handleWeightLimitChange = (text) => {
     // Remove any non-numeric characters except decimal point
     const cleanedText = text.replace(/[^0-9.]/g, "");
@@ -126,11 +167,20 @@ export default function AccountSetup() {
     setCustomWeightLimit(sanitized);
   };
 
+  /**
+   * Capitalizes the first letter of a string and converts the rest to lowercase.
+   * Used for formatting vehicle type values before saving to Firestore for consistent data presentation.
+   */
   const capitalizeFirstLetter = (str) => {
     if (!str) return str;
     return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
   };
 
+  /**
+   * Validates all form fields (address length, phone number format, join code, plate number, vehicle type, model, and custom weight limit within valid ranges), checks for duplicate plate numbers across all users, verifies join code exists in branches collection, and saves the complete account setup data to Firestore.
+   * Uses merge: true for existing users to preserve other fields, or creates a new user document with default driver role and offline status if the user document doesn't exist.
+   * After successful validation and saving, clears the AsyncStorage form data, navigates to preferred routes setup if branch wasn't joined, and displays appropriate success messages based on branch join status.
+   */
   const handleSubmit = async () => {
     const newErrors = {};
     

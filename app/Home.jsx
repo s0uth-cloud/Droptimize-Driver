@@ -1,28 +1,33 @@
+// External dependencies
 import { router } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import {
-    arrayUnion,
-    collection,
-    doc,
-    getDoc,
-    getDocs,
-    onSnapshot,
-    query,
-    Timestamp,
-    updateDoc,
-    where,
-} from "firebase/firestore";
-import { useEffect, useState } from "react";
-import {
-    ActivityIndicator,
-    Alert,
-    Dimensions,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+// Firebase imports
+import {
+  arrayUnion,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  query,
+  Timestamp,
+  updateDoc,
+  where,
+} from "firebase/firestore";
+
+// Internal dependencies
 import Dashboard from "../components/DriverDashboard";
 import { auth, db } from "../firebaseConfig";
 import { useOverspeed } from "../provider/OverspeedProvider";
@@ -70,7 +75,7 @@ export default function Home() {
       }
     };
     init();
-  }, [user]);
+  }, [user, fetchParcels]);
 
   useEffect(() => {
     if (!user) return;
@@ -109,7 +114,12 @@ export default function Home() {
     return () => unsub();
   }, [user, userData]);
 
-  const fetchParcels = async (data) => {
+  /**
+   * Fetches all parcels assigned to the current driver with "Out for Delivery" status from Firestore.
+   * Sorts parcels by the driver's preferred routes order (municipalities) and sets the first parcel as the next delivery.
+   * This ensures drivers deliver in their preferred geographic order for optimal route efficiency.
+   */
+  const fetchParcels = useCallback(async (data) => {
     if (!user) return;
     const q = query(
       collection(db, "parcels"),
@@ -130,14 +140,23 @@ export default function Home() {
     } else {
       setNextDelivery(null);
     }
-  };
+  }, [user]);
 
+  /**
+   * Retrieves the latest user data from Firestore for the currently authenticated driver.
+   * Used to refresh local state after status updates or when real-time listeners may have missed changes.
+   */
   const refetchUser = async () => {
     if (!user) return;
     const snap = await getDoc(doc(db, "users", user.uid));
     setUserData(snap.data());
   };
 
+  /**
+   * Updates the driver's current status in Firestore (Offline, Available, Delivering).
+   * Automatically refetches the user data to ensure local state matches the database after the update.
+   * Displays button loading state during the operation and handles errors gracefully with console logging.
+   */
   const updateStatus = async (newStatus) => {
     if (!user) return;
     try {
@@ -151,6 +170,10 @@ export default function Home() {
     }
   };
 
+  /**
+   * Starts the driver's shift by resetting all driving metrics (speed, distance, duration) from previous sessions and setting the driver's status to "Available".
+   * This prepares the driver to accept new parcel assignments and ensures metrics are tracked from a clean slate for the new shift.
+   */
   const handleStartShift = async () => {
     console.log("[Home] Starting shift - resetting metrics");
     await resetDrivingMetrics();
@@ -158,6 +181,11 @@ export default function Home() {
     await fetchParcels({ ...userData, status: "Available" });
   };
 
+  /**
+   * Begins the delivery process by initializing shift metrics with the driver's current GPS location and updating their status to "Delivering".
+   * Validates that GPS location is available before proceeding and shows an alert if location is not yet acquired.
+   * This marks the transition from accepting assignments to actively delivering parcels.
+   */
   const handleStartDelivering = async () => {
     if (!location) {
       Alert.alert(
@@ -174,6 +202,11 @@ export default function Home() {
     await updateStatus("Delivering");
   };
 
+  /**
+   * Ends the driver's shift by calculating final driving metrics (duration, average speed, top speed, distance) and saving them to the driver's violations/history array in Firestore.
+   * If no valid driving data was recorded during the shift, prompts the user with an alert and cancels the shift without saving history.
+   * Upon successful completion, resets all driving metrics, clears deliveries, sets status to "Offline", and displays a summary alert with shift statistics.
+   */
   const handleEndShift = async () => {
     if (!user) return;
 
