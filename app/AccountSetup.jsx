@@ -1,10 +1,32 @@
+// External dependencies
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import {
+    ActivityIndicator,
+    KeyboardAvoidingView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from "react-native";
 import DropDownPicker from "react-native-dropdown-picker";
+
+// Firebase imports
+import {
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    query,
+    serverTimestamp,
+    setDoc,
+    where,
+} from "firebase/firestore";
+
+// Internal dependencies
 import { auth, db } from "../firebaseConfig";
 
 const FORM_STORAGE_KEY = "@account_setup_form";
@@ -43,6 +65,14 @@ export default function AccountSetup() {
     truck: 1500,
   };
 
+  const vehicleWeightRanges = {
+    motorcycle: { min: 10, max: 50 },
+    tricycle: { min: 50, max: 200 },
+    car: { min: 200, max: 500 },
+    van: { min: 500, max: 1200 },
+    truck: { min: 1000, max: 3000 },
+  };
+
   useFocusEffect(
     useCallback(() => {
       loadFormData();
@@ -70,6 +100,10 @@ export default function AccountSetup() {
     }
   };
 
+  /**
+   * Retrieves previously saved form data from AsyncStorage to restore the user's progress if they navigated away before completing setup.
+   * Parses and loads saved values for address, phone number, join code, plate number, vehicle model, vehicle type, and custom weight limit.
+   */
   const loadFormData = async () => {
     try {
       const saved = await AsyncStorage.getItem(FORM_STORAGE_KEY);
@@ -84,6 +118,9 @@ export default function AccountSetup() {
     }
   };
 
+  /**
+   * Removes the saved account setup form data from AsyncStorage after successful submission to prevent old data from being loaded in future sessions.
+   */
   const clearFormData = async () => {
     try {
       await AsyncStorage.removeItem(FORM_STORAGE_KEY);
@@ -92,6 +129,10 @@ export default function AccountSetup() {
     }
   };
 
+  /**
+   * Updates a specific form field value in state and automatically persists the entire form data to AsyncStorage.
+   * Used for handling text input changes for address, phone number, join code, plate number, and vehicle model fields.
+   */
   const handleChange = (field, value) => {
     setFormData((prev) => {
       const updated = { ...prev, [field]: value };
@@ -100,24 +141,102 @@ export default function AccountSetup() {
     });
   };
 
+  /**
+   * Updates the vehicle type selection and saves the form data to AsyncStorage to preserve the user's choice.
+   * Triggers the display of custom weight limit input based on vehicle type selection.
+   */
   const handleVehicleTypeChange = (value) => {
     setVehicleType(value);
     saveFormData(formData, value);
   };
 
+  /**
+   * Sanitizes custom weight limit input by removing non-numeric characters (except decimal point), preventing multiple decimal points, and clearing validation errors as the user types.
+   * Ensures only valid numeric input is accepted for vehicle weight capacity.
+   */
+  const handleWeightLimitChange = (text) => {
+    // Remove any non-numeric characters except decimal point
+    const cleanedText = text.replace(/[^0-9.]/g, "");
+    
+    // Prevent multiple decimal points
+    const parts = cleanedText.split(".");
+    const sanitized = parts.length > 2 ? parts[0] + "." + parts.slice(1).join("") : cleanedText;
+    
+    // Clear error when user is typing
+    setErrors((prev) => ({ ...prev, customWeightLimit: "" }));
+    setCustomWeightLimit(sanitized);
+  };
+
+  /**
+   * Capitalizes the first letter of a string and converts the rest to lowercase.
+   * Used for formatting vehicle type values before saving to Firestore for consistent data presentation.
+   */
   const capitalizeFirstLetter = (str) => {
     if (!str) return str;
     return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
   };
 
+  /**
+   * Validates all form fields (address length, phone number format, join code, plate number, vehicle type, model, and custom weight limit within valid ranges), checks for duplicate plate numbers across all users, verifies join code exists in branches collection, and saves the complete account setup data to Firestore.
+   * Uses merge: true for existing users to preserve other fields, or creates a new user document with default driver role and offline status if the user document doesn't exist.
+   * After successful validation and saving, clears the AsyncStorage form data, navigates to preferred routes setup if branch wasn't joined, and displays appropriate success messages based on branch join status.
+   */
   const handleSubmit = async () => {
     const newErrors = {};
-    if (!formData.address.trim()) newErrors.address = "Address is required";
-    if (!formData.phoneNumber.trim()) newErrors.phoneNumber = "Phone number is required";
-    if (!formData.joinCode.trim()) newErrors.joinCode = "Join code is required";
-    if (!formData.plateNumber.trim()) newErrors.plateNumber = "Plate number is required";
-    if (!vehicleType) newErrors.vehicleType = "Vehicle type is required";
-    if (!formData.model.trim()) newErrors.model = "Vehicle model is required";
+    
+    // Address validation
+    if (!formData.address.trim()) {
+      newErrors.address = "Address is required";
+    } else if (formData.address.trim().length < 10) {
+      newErrors.address = "Address must be at least 10 characters";
+    }
+    
+    // Phone number validation
+    if (!formData.phoneNumber.trim()) {
+      newErrors.phoneNumber = "Phone number is required";
+    } else if (!/^[0-9+\-\s()]+$/.test(formData.phoneNumber)) {
+      newErrors.phoneNumber = "Invalid phone number format";
+    } else if (formData.phoneNumber.replace(/[^0-9]/g, "").length < 10) {
+      newErrors.phoneNumber = "Phone number must have at least 10 digits";
+    }
+    
+    // Join code validation (optional)
+    if (formData.joinCode.trim() && formData.joinCode.trim().length < 4) {
+      newErrors.joinCode = "Join code must be at least 4 characters";
+    }
+    
+    // Plate number validation
+    if (!formData.plateNumber.trim()) {
+      newErrors.plateNumber = "Plate number is required";
+    } else if (formData.plateNumber.trim().length < 2) {
+      newErrors.plateNumber = "Plate number must be at least 2 characters";
+    }
+    
+    // Vehicle type validation
+    if (!vehicleType) {
+      newErrors.vehicleType = "Vehicle type is required";
+    }
+    
+    // Vehicle model validation
+    if (!formData.model.trim()) {
+      newErrors.model = "Vehicle model is required";
+    } else if (formData.model.trim().length < 2) {
+      newErrors.model = "Vehicle model must be at least 2 characters";
+    }
+    
+    // Custom weight limit validation
+    if (customWeightLimit && vehicleType) {
+      const weight = parseFloat(customWeightLimit);
+      const range = vehicleWeightRanges[vehicleType];
+      
+      if (isNaN(weight)) {
+        newErrors.customWeightLimit = "Weight must be a valid number";
+      } else if (weight < range.min) {
+        newErrors.customWeightLimit = `Weight must be at least ${range.min} kg for ${vehicleType}`;
+      } else if (weight > range.max) {
+        newErrors.customWeightLimit = `Weight cannot exceed ${range.max} kg for ${vehicleType}`;
+      }
+    }
 
     setErrors(newErrors);
     if (Object.keys(newErrors).length > 0) return;
@@ -132,12 +251,29 @@ export default function AccountSetup() {
         return;
       }
 
-      const branchRef = doc(db, "branches", formData.joinCode);
-      const branchSnap = await getDoc(branchRef);
-      if (!branchSnap.exists()) {
-        setErrors({ joinCode: "Invalid join code" });
+      // Check for duplicate plate number
+      const usersRef = collection(db, "users");
+      const plateQuery = query(usersRef, where("plateNumber", "==", formData.plateNumber.toUpperCase().trim()));
+      const plateSnapshot = await getDocs(plateQuery);
+      
+      // Check if any existing user (other than current user) has this plate number
+      const duplicatePlate = plateSnapshot.docs.find(doc => doc.id !== currentUser.uid);
+      if (duplicatePlate) {
+        setErrors({ plateNumber: "This plate number is already registered. Please use a different plate number." });
         setLoading(false);
         return;
+      }
+
+      let branchId = null;
+      if (formData.joinCode.trim()) {
+        const branchRef = doc(db, "branches", formData.joinCode);
+        const branchSnap = await getDoc(branchRef);
+        if (!branchSnap.exists()) {
+          setErrors({ joinCode: "Invalid join code" });
+          setLoading(false);
+          return;
+        }
+        branchId = branchRef.id;
       }
 
       const userRef = doc(db, "users", currentUser.uid);
@@ -154,7 +290,7 @@ export default function AccountSetup() {
           {
             address: formData.address,
             phoneNumber: formData.phoneNumber,
-            branchId: branchRef.id,
+            branchId: branchId,
             plateNumber: formData.plateNumber,
             vehicleType: capitalizedVehicleType,
             vehicleWeightLimit: weightLimit,
@@ -173,7 +309,7 @@ export default function AccountSetup() {
           photoURL: currentUser.photoURL || "",
           address: formData.address,
           phoneNumber: formData.phoneNumber,
-          branchId: branchRef.id,
+          branchId: branchId,
           plateNumber: formData.plateNumber,
           vehicleType: capitalizedVehicleType,
           vehicleWeightLimit: weightLimit,
@@ -247,28 +383,31 @@ export default function AccountSetup() {
         {errors.vehicleType && <Text style={styles.errorText}>{errors.vehicleType}</Text>}
 
         <TextInput
-          style={[styles.input, { marginTop: 8 }]}
+          style={[styles.input, { marginTop: 8 }, errors.customWeightLimit && styles.inputError]}
           placeholder="Custom Weight Limit (kg) - Optional"
           placeholderTextColor="#999"
           value={customWeightLimit}
-          onChangeText={(text) => setCustomWeightLimit(text)}
+          onChangeText={handleWeightLimitChange}
           keyboardType="numeric"
           underlineColorAndroid="transparent"
           autoCorrect={false}
+          editable={!!vehicleType}
         />
+        {errors.customWeightLimit && <Text style={styles.errorText}>{errors.customWeightLimit}</Text>}
         {vehicleType && (
           <Text style={styles.helperText}>
             Default: {vehicleWeightLimits[vehicleType]} kg
             {customWeightLimit && parseFloat(customWeightLimit) > 0 
               ? ` → Custom: ${customWeightLimit} kg` 
               : ""}
+            {"\n"}Valid range: {vehicleWeightRanges[vehicleType].min} - {vehicleWeightRanges[vehicleType].max} kg
           </Text>
         )}
 
         <View style={[styles.inputWrapper, errors.joinCode && styles.inputError]}>
           <TextInput
             style={styles.joinCodeInput}
-            placeholder="Company Join Code"
+            placeholder="Company Join Code (Optional)"
             placeholderTextColor="#999"
             value={formData.joinCode}
             onChangeText={(text) => handleChange("joinCode", text)}
@@ -284,6 +423,9 @@ export default function AccountSetup() {
           </TouchableOpacity>
         </View>
         {errors.joinCode && <Text style={styles.errorText}>{errors.joinCode}</Text>}
+        {!formData.joinCode.trim() && !errors.joinCode && (
+          <Text style={styles.helperText}>You can join a branch later from your profile</Text>
+        )}
         {errors.general && <Text style={styles.errorText}>{errors.general}</Text>}
 
         <TouchableOpacity style={styles.button} onPress={handleSubmit} disabled={loading}>

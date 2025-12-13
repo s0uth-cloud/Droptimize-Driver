@@ -1,28 +1,33 @@
+// External dependencies
 import { router } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import {
-    arrayUnion,
-    collection,
-    doc,
-    getDoc,
-    getDocs,
-    onSnapshot,
-    query,
-    Timestamp,
-    updateDoc,
-    where,
-} from "firebase/firestore";
-import { useEffect, useState } from "react";
-import {
-    ActivityIndicator,
-    Alert,
-    Dimensions,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+// Firebase imports
+import {
+  arrayUnion,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  query,
+  Timestamp,
+  updateDoc,
+  where,
+} from "firebase/firestore";
+
+// Internal dependencies
 import Dashboard from "../components/DriverDashboard";
 import { auth, db } from "../firebaseConfig";
 import { useOverspeed } from "../provider/OverspeedProvider";
@@ -70,7 +75,7 @@ export default function Home() {
       }
     };
     init();
-  }, [user]);
+  }, [user, fetchParcels]);
 
   useEffect(() => {
     if (!user) return;
@@ -83,7 +88,38 @@ export default function Home() {
     return () => unsub();
   }, [user]);
 
-  const fetchParcels = async (data) => {
+  // Real-time listener for parcels
+  useEffect(() => {
+    if (!user) return;
+    const q = query(
+      collection(db, "parcels"),
+      where("driverUid", "==", user.uid),
+      where("status", "==", "Out for Delivery")
+    );
+    const unsub = onSnapshot(q, (snapshot) => {
+      const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      setDeliveries(list);
+
+      if (userData?.preferredRoutes && list.length > 0) {
+        const ordered = list.sort((a, b) => {
+          const aIndex = userData.preferredRoutes.indexOf(a.municipality);
+          const bIndex = userData.preferredRoutes.indexOf(b.municipality);
+          return aIndex - bIndex;
+        });
+        setNextDelivery(ordered[0]);
+      } else {
+        setNextDelivery(null);
+      }
+    });
+    return () => unsub();
+  }, [user, userData]);
+
+  /**
+   * Fetches all parcels assigned to the current driver with "Out for Delivery" status from Firestore.
+   * Sorts parcels by the driver's preferred routes order (municipalities) and sets the first parcel as the next delivery.
+   * This ensures drivers deliver in their preferred geographic order for optimal route efficiency.
+   */
+  const fetchParcels = useCallback(async (data) => {
     if (!user) return;
     const q = query(
       collection(db, "parcels"),
@@ -104,14 +140,23 @@ export default function Home() {
     } else {
       setNextDelivery(null);
     }
-  };
+  }, [user]);
 
+  /**
+   * Retrieves the latest user data from Firestore for the currently authenticated driver.
+   * Used to refresh local state after status updates or when real-time listeners may have missed changes.
+   */
   const refetchUser = async () => {
     if (!user) return;
     const snap = await getDoc(doc(db, "users", user.uid));
     setUserData(snap.data());
   };
 
+  /**
+   * Updates the driver's current status in Firestore (Offline, Available, Delivering).
+   * Automatically refetches the user data to ensure local state matches the database after the update.
+   * Displays button loading state during the operation and handles errors gracefully with console logging.
+   */
   const updateStatus = async (newStatus) => {
     if (!user) return;
     try {
@@ -125,6 +170,10 @@ export default function Home() {
     }
   };
 
+  /**
+   * Starts the driver's shift by resetting all driving metrics (speed, distance, duration) from previous sessions and setting the driver's status to "Available".
+   * This prepares the driver to accept new parcel assignments and ensures metrics are tracked from a clean slate for the new shift.
+   */
   const handleStartShift = async () => {
     console.log("[Home] Starting shift - resetting metrics");
     await resetDrivingMetrics();
@@ -132,6 +181,11 @@ export default function Home() {
     await fetchParcels({ ...userData, status: "Available" });
   };
 
+  /**
+   * Begins the delivery process by initializing shift metrics with the driver's current GPS location and updating their status to "Delivering".
+   * Validates that GPS location is available before proceeding and shows an alert if location is not yet acquired.
+   * This marks the transition from accepting assignments to actively delivering parcels.
+   */
   const handleStartDelivering = async () => {
     if (!location) {
       Alert.alert(
@@ -148,6 +202,11 @@ export default function Home() {
     await updateStatus("Delivering");
   };
 
+  /**
+   * Ends the driver's shift by calculating final driving metrics (duration, average speed, top speed, distance) and saving them to the driver's violations/history array in Firestore.
+   * If no valid driving data was recorded during the shift, prompts the user with an alert and cancels the shift without saving history.
+   * Upon successful completion, resets all driving metrics, clears deliveries, sets status to "Offline", and displays a summary alert with shift statistics.
+   */
   const handleEndShift = async () => {
     if (!user) return;
 
@@ -269,12 +328,28 @@ export default function Home() {
 
   const status = userData?.status || "Offline";
   const hasParcels = deliveries.length > 0;
+  const hasJoinedBranch = userData?.branchId;
 
   return (
     <SafeAreaView style={styles.safe} edges={["left", "right"]}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={[styles.topSection, { minHeight: screenWidth * 0.6 }]}>
-          {status === "Offline" && (
+          {!hasJoinedBranch && (
+            <>
+              <Text style={styles.greeting}>
+                Welcome, {userData?.firstName || "Driver"} 👋
+              </Text>
+              <Text style={styles.subheading}>Join a branch to start receiving deliveries</Text>
+              <TouchableOpacity
+                style={[styles.startShiftButton, { width: screenWidth * 0.45 }]}
+                onPress={() => router.push("/JoinBranch")}
+              >
+                <Text style={styles.startShiftText}>Join Branch</Text>
+              </TouchableOpacity>
+            </>
+          )}
+          
+          {hasJoinedBranch && status === "Offline" && (
             <>
               <Text style={styles.greeting}>
                 Welcome Back, {userData?.firstName || "Driver"} 👋
@@ -294,7 +369,7 @@ export default function Home() {
             </>
           )}
 
-          {status === "Available" && (
+          {hasJoinedBranch && status === "Available" && (
             <View style={styles.statusBox}>
               <Text style={styles.statusLabel}>
                 Status:{" "}
@@ -304,9 +379,17 @@ export default function Home() {
               </Text>
 
               {!hasParcels ? (
-                <Text style={styles.waitText}>
-                  Waiting for parcels to be assigned...
-                </Text>
+                <>
+                  <Text style={styles.waitText}>
+                    Waiting for parcels to be assigned...
+                  </Text>
+                  <TouchableOpacity
+                    style={[styles.scanParcelButton, { width: screenWidth * 0.5 }]}
+                    onPress={() => router.push("/ScanParcel")}
+                  >
+                    <Text style={styles.scanParcelText}>Scan Parcel</Text>
+                  </TouchableOpacity>
+                </>
               ) : (
                 <>
                   <Text style={styles.waitText}>
@@ -341,7 +424,7 @@ export default function Home() {
             </View>
           )}
 
-          {status === "Delivering" && (
+          {hasJoinedBranch && status === "Delivering" && (
             <View style={styles.shiftCard}>
               <Text style={styles.statusLabel}>
                 Status:{" "}
@@ -559,6 +642,30 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 3,
     elevation: 3,
+  },
+  scanParcelButton: {
+    height: 48,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#00b2e1",
+    borderRadius: 10,
+    marginTop: 16,
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  scanParcelText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#fff",
+  },
+  buttonRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    width: "100%",
+    gap: 8,
   },
   cancelText: {
     fontSize: 16,

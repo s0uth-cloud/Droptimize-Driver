@@ -1,22 +1,22 @@
 import { useNavigation } from "@react-navigation/native";
 import * as Location from "expo-location";
 import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  query,
-  updateDoc,
-  where,
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    query,
+    updateDoc,
+    where,
 } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import MapViewDirections from "react-native-maps-directions";
 import { auth, db } from "../firebaseConfig";
@@ -85,7 +85,13 @@ export default function DriverDashboard() {
   const updateDeliveryStatus = async (parcelId, status) => {
     try {
       setButtonLoading(true);
-      await updateDoc(doc(db, "parcels", parcelId), { status });
+      const updateData = { status };
+      if (status === "Delivered") {
+        updateData.DeliveredAt = new Date();
+      } else if (status === "Failed") {
+        updateData.FailedAt = new Date();
+      }
+      await updateDoc(doc(db, "parcels", parcelId), updateData);
       Alert.alert("Success", `Parcel marked as ${status}.`);
       const updatedParcels = parcels.map((p) =>
         p.id === parcelId ? { ...p, status } : p
@@ -202,13 +208,13 @@ export default function DriverDashboard() {
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.actionButton, { backgroundColor: "#f21b3f" }]}
-              onPress={() => updateDeliveryStatus(next.id, "Cancelled")}
+              onPress={() => updateDeliveryStatus(next.id, "Failed")}
               disabled={buttonLoading}
             >
               {buttonLoading ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.actionText}>Cancelled</Text>
+                <Text style={styles.actionText}>Failed</Text>
               )}
             </TouchableOpacity>
           </View>

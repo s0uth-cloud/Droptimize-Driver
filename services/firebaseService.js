@@ -1,6 +1,24 @@
-import { collection, deleteDoc, doc, getDoc, getDocs, orderBy, query, setDoc, Timestamp } from 'firebase/firestore';
+// Firebase imports
+import {
+    collection,
+    deleteDoc,
+    doc,
+    getDoc,
+    getDocs,
+    orderBy,
+    query,
+    setDoc,
+    Timestamp,
+} from 'firebase/firestore';
+
+// Internal dependencies
 import { db } from '../firebaseConfig';
 
+/**
+ * Retrieves all parcels from Firestore, optionally filtered by a specific user ID.
+ * When a uid is provided, returns only parcels belonging to that user; otherwise returns all parcels in the system.
+ * Each parcel includes id, reference, status, recipient, address, dateAdded timestamp, and uid fields with fallback defaults for missing data.
+ */
 export const fetchAllParcels = async (uid = null) => {
   try {
     const parcels = [];
@@ -55,6 +73,11 @@ export const fetchAllParcels = async (uid = null) => {
   }
 };
 
+/**
+ * Calculates parcel status counts (delivered, out for delivery, failed/returned, pending) from Firestore, optionally filtered by user ID.
+ * Iterates through all parcels and categorizes them by status, returning an object with individual counts and a total count.
+ * Returns zero counts if no parcels are found or if an error occurs during fetching.
+ */
 export const fetchParcelStatusData = async (uid = null) => {
   try {
     let delivered = 0;
@@ -108,6 +131,11 @@ export const fetchParcelStatusData = async (uid = null) => {
   }
 };
 
+/**
+ * Creates a new parcel document in Firestore with the provided data and associates it with a user ID.
+ * Generates a unique parcel ID (PKG + 6-digit number) if not provided, adds timestamps for dateAdded and createdAt, and stores all parcel details including reference, status, recipient, and address.
+ * Returns an object with success status, the generated parcel ID, timestamp, and uid, or an error message if the operation fails.
+ */
 export const addParcel = async (parcelData, uid) => {
   try {
     if (!uid) {
@@ -147,6 +175,11 @@ export const addParcel = async (parcelData, uid) => {
   }
 };
 
+/**
+ * Updates an existing parcel document in Firestore by merging new data with existing fields.
+ * Removes undefined values from the update payload to prevent overwriting existing data, adds an updatedAt timestamp, and uses merge: true to preserve unmodified fields.
+ * Returns an object with success status and the parcel ID, or an error message if the update fails or parcel ID is missing.
+ */
 export const updateParcel = async (parcelData, parcelId) => {
   try {
     if (!parcelId) {
@@ -184,6 +217,10 @@ export const updateParcel = async (parcelData, parcelId) => {
   }
 };
 
+/**
+ * Permanently deletes a parcel document from Firestore using the provided parcel ID.
+ * Validates that a parcel ID is provided before attempting deletion, and returns a success message or error if the operation fails.
+ */
 export const deleteParcel = async (parcelId) => {
   try {
     if (!parcelId) {
@@ -207,6 +244,10 @@ export const deleteParcel = async (parcelId) => {
   }
 };
 
+/**
+ * Retrieves a single parcel document from Firestore by its ID.
+ * Validates the parcel ID, fetches the document, and returns the parcel data with all fields (reference, status, recipient, address, dateAdded, uid) or an error if the parcel is not found.
+ */
 export const getParcel = async (parcelId) => {
   try {
     if (!parcelId) {
@@ -247,6 +288,11 @@ export const getParcel = async (parcelId) => {
   }
 };
 
+/**
+ * Retrieves and counts drivers by their current status (available, on trip/delivering, offline) from the drivers collection in Firestore.
+ * Iterates through all driver documents and categorizes them based on their status field, returning an object with counts for each status category.
+ * Returns zero counts for all categories if an error occurs during fetching.
+ */
 export const fetchDriverStatusData = async () => {
   try {
     const driversRef = collection(db, 'drivers');
@@ -280,6 +326,11 @@ export const fetchDriverStatusData = async () => {
   }
 };
 
+/**
+ * Aggregates delivery volume data from Firestore by date, grouping deliveries by day or week based on the period parameter.
+ * Fetches all delivery documents, extracts their dates, and organizes them into a data structure keyed by date strings (YYYY-MM-DD for daily, week number for weekly).
+ * Used for generating delivery volume charts and analytics on the dashboard.
+ */
 export const fetchDeliveryVolumeData = async (period = 'daily') => {
   try {
     const deliveriesRef = collection(db, 'deliveries');
