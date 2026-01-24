@@ -27,6 +27,13 @@ const CATEGORY_COLORS = {
   Default: "#9e9e9e",
 };
 
+// Validate API key on load
+if (!GOOGLE_MAPS_APIKEY) {
+  console.error('[Map] GOOGLE_MAPS_APIKEY is not set! Check .env file.');
+} else {
+  console.log('[Map] API Key loaded:', GOOGLE_MAPS_APIKEY.substring(0, 10) + '...');
+}
+
 function bearingBetween(a, b) {
   const toRad = (d) => (d * Math.PI) / 180;
   const toDeg = (r) => (r * 180) / Math.PI;
@@ -302,6 +309,21 @@ export default function Map({ user: passedUser }) {
     }
   }, [mapReady, slowdownsLoaded, parcelsLoaded, routeReady, needsRoute]);
 
+  if (!GOOGLE_MAPS_APIKEY) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Ionicons name="warning" size={48} color="#f21b3f" />
+        <Text style={{ marginTop: 15, fontSize: 16, fontWeight: 'bold', color: '#f21b3f' }}>
+          Map Configuration Error
+        </Text>
+        <Text style={{ marginTop: 10, fontSize: 14, color: '#666', textAlign: 'center', paddingHorizontal: 20 }}>
+          Google Maps API key is not configured.{"\n"}
+          Please contact support.
+        </Text>
+      </View>
+    );
+  }
+
   if (loading || !provLocation) {
     return (
       <View style={styles.loadingContainer}>
@@ -356,7 +378,16 @@ export default function Map({ user: passedUser }) {
           latitudeDelta: 0.08,
           longitudeDelta: 0.08,
         }}
-        onMapReady={() => setMapReady(true)}
+        onMapReady={() => {
+          console.log('[Map] Map ready');
+          setMapReady(true);
+        }}
+        onMapLoaded={() => {
+          console.log('[Map] Map loaded successfully');
+        }}
+        onError={(error) => {
+          console.error('[Map] Map error:', error);
+        }}
         onTouchStart={beginGesture}
         onTouchEnd={endGestureSoon}
         onPanDrag={beginGesture}
