@@ -1,7 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
-import { Stack, useRouter } from "expo-router";
+import * as Linking from "expo-linking";
+import { Stack, usePathname, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -15,6 +18,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Navigation from "../components/Navigation";
+import { auth, db } from "../firebaseConfig";
 import { OverspeedProvider } from "../provider/OverspeedProvider";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -33,32 +37,130 @@ export default function RootLayout() {
 
   const [appReady, setAppReady] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
   const router = useRouter();
+  const pathname = usePathname();
+
+  const isPublicRoute =
+    pathname === "/" ||
+    pathname === "/Login" ||
+    pathname === "/SignUp" ||
+    pathname === "/ResetPassword";
 
   const openMenu = () => {
     setMenuOpen(true);
-    Animated.timing(slideAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start();
+    Animated.timing(slideAnim, {
+      toValue: 0,
+      duration: 250,
+      useNativeDriver: true,
+    }).start();
   };
   const closeMenu = () => {
-    Animated.timing(slideAnim, { toValue: -DRAWER_WIDTH, duration: 250, useNativeDriver: true }).start(() =>
-      setMenuOpen(false)
-    );
+    Animated.timing(slideAnim, {
+      toValue: -DRAWER_WIDTH,
+      duration: 250,
+      useNativeDriver: true,
+    }).start(() => setMenuOpen(false));
   };
 
   const BurgerButton = () => (
     <TouchableOpacity onPress={openMenu} style={{ marginLeft: 10 }}>
-        <Ionicons name="menu" size={28} color="#333" />
-      </TouchableOpacity>
+      <Ionicons name="menu" size={28} color="#333" />
+    </TouchableOpacity>
   );
 
   useEffect(() => {
     if (fontsLoaded || fontError) setAppReady(true);
   }, [fontsLoaded, fontError]);
 
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setIsAuthenticated(false);
+        setAuthReady(true);
+        return;
+      }
+
+      if (!user.emailVerified) {
+        try {
+          await signOut(auth);
+        } catch {}
+        setIsAuthenticated(false);
+        setAuthReady(true);
+        return;
+      }
+
+      try {
+        const userDoc = await getDoc(doc(db, "users", user.uid));
+        const data = userDoc.data() || {};
+
+        if (!userDoc.exists() || data.role !== "driver") {
+          await signOut(auth);
+          setIsAuthenticated(false);
+        } else {
+          setIsAuthenticated(true);
+        }
+      } catch {
+        setIsAuthenticated(false);
+      } finally {
+        setAuthReady(true);
+      }
+    });
+
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    const handleIncomingUrl = (url) => {
+      if (!url) return;
+
+      const { queryParams } = Linking.parse(url);
+      const mode = queryParams?.mode;
+      const oobCode = queryParams?.oobCode;
+
+      if (mode === "resetPassword" && typeof oobCode === "string" && oobCode) {
+        router.replace({
+          pathname: "/ResetPassword",
+          params: { oobCode },
+        });
+      }
+    };
+
+    Linking.getInitialURL()
+      .then((initialUrl) => {
+        handleIncomingUrl(initialUrl);
+      })
+      .catch(() => {});
+
+    const subscription = Linking.addEventListener("url", ({ url }) => {
+      handleIncomingUrl(url);
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [router]);
+
+  useEffect(() => {
+    if (!appReady || !authReady) return;
+
+    if (!isAuthenticated && !isPublicRoute) {
+      router.replace("/Login");
+      return;
+    }
+
+    if (isAuthenticated && (pathname === "/Login" || pathname === "/SignUp")) {
+      router.replace("/");
+    }
+  }, [appReady, authReady, isAuthenticated, isPublicRoute, pathname, router]);
+
   const onLayoutRootView = useCallback(async () => {
     if (appReady) {
-      try { await SplashScreen.hideAsync(); } catch {}
+      try {
+        await SplashScreen.hideAsync();
+      } catch {}
     }
   }, [appReady]);
 
@@ -72,45 +174,71 @@ export default function RootLayout() {
 
   return (
     <OverspeedProvider>
-      <SafeAreaView style={{ flex: 1 }} edges={["left", "right", "bottom"]} onLayout={onLayoutRootView}>
-      <Stack
-        screenOptions={{
-          headerShown: true,
-          headerTitleAlign: "center",
-            headerStyle: { elevation: 0, shadowOpacity: 0, backgroundColor: "#fff" },
-            headerLeft: () => <BurgerButton />,
-            headerTitle: () => <Image source={logo} style={{ width: 160, height: 35 }} resizeMode="contain" />,
-        }}
+      <SafeAreaView
+        style={{ flex: 1 }}
+        edges={["left", "right", "bottom"]}
+        onLayout={onLayoutRootView}
       >
-        <Stack.Screen name="index" options={{ headerShown: false }} />
-        <Stack.Screen name="Login" options={{ headerShown: false }} />
-        <Stack.Screen name="SignUp" options={{ headerShown: false }} />
-        <Stack.Screen name="AccountSetup" options={{ headerShown: false }} />
-        <Stack.Screen name="PreferredRoutesSetup" options={{ headerShown: false }} />
-        <Stack.Screen name="Home" options={{ title: "" }} />
-        <Stack.Screen name="Profile" options={{ title: "Profile" }} />
-        <Stack.Screen name="Parcels" options={{ title: "Parcels" }} />
-        <Stack.Screen name="Map" options={{ title: "Map" }} />
-        <Stack.Screen name="DrivingStats" options={{ title: "Driving Stats" }} />
-        <Stack.Screen name="ScanQR" options={{ headerShown: false }} />
-      </Stack>
+        <Stack
+          screenOptions={{
+            headerShown: true,
+            headerTitleAlign: "center",
+            headerStyle: {
+              elevation: 0,
+              shadowOpacity: 0,
+              backgroundColor: "#fff",
+            },
+            headerLeft: () => (isPublicRoute ? null : <BurgerButton />),
+            headerTitle: () => (
+              <Image
+                source={logo}
+                style={{ width: 160, height: 35 }}
+                resizeMode="contain"
+              />
+            ),
+          }}
+        >
+          <Stack.Screen name="index" options={{ headerShown: false }} />
+          <Stack.Screen name="Login" options={{ headerShown: false }} />
+          <Stack.Screen name="SignUp" options={{ headerShown: false }} />
+          <Stack.Screen name="ResetPassword" options={{ headerShown: false }} />
+          <Stack.Screen name="AccountSetup" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="PreferredRoutesSetup"
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen name="Home" options={{ title: "" }} />
+          <Stack.Screen name="Profile" options={{ title: "Profile" }} />
+          <Stack.Screen name="Parcels" options={{ title: "Parcels" }} />
+          <Stack.Screen name="Map" options={{ title: "Map" }} />
+          <Stack.Screen
+            name="DrivingStats"
+            options={{ title: "Driving Stats" }}
+          />
+          <Stack.Screen name="ScanQR" options={{ headerShown: false }} />
+        </Stack>
 
-      {menuOpen && (
-        <>
-          <TouchableWithoutFeedback onPress={closeMenu}>
-            <View style={styles.overlay} />
-          </TouchableWithoutFeedback>
-          <Animated.View style={[styles.drawer, { transform: [{ translateX: slideAnim }] }]}>
-            <Navigation
-              onNavigate={(path) => {
-                closeMenu();
-                router.replace(path);
-              }}
-            />
-          </Animated.View>
-        </>
-      )}
-    </SafeAreaView>
+        {menuOpen && (
+          <>
+            <TouchableWithoutFeedback onPress={closeMenu}>
+              <View style={styles.overlay} />
+            </TouchableWithoutFeedback>
+            <Animated.View
+              style={[
+                styles.drawer,
+                { transform: [{ translateX: slideAnim }] },
+              ]}
+            >
+              <Navigation
+                onNavigate={(path) => {
+                  closeMenu();
+                  router.replace(path);
+                }}
+              />
+            </Animated.View>
+          </>
+        )}
+      </SafeAreaView>
     </OverspeedProvider>
   );
 }

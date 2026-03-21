@@ -3,7 +3,14 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { doc, getDoc } from "firebase/firestore";
 import { useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import {
+    ActivityIndicator,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from "react-native";
 
 // Internal dependencies
 import { db, loginUser } from "../firebaseConfig";
@@ -56,13 +63,28 @@ export default function Login() {
 
       const user = result.user;
       const userDocSnap = await getDoc(doc(db, "users", user.uid));
-      const data = userDocSnap.data();
+      if (!userDocSnap.exists()) {
+        setFirebaseError("Account profile not found. Please contact support.");
+        return;
+      }
+      const data = userDocSnap.data() || {};
 
-      if (data?.accountSetupComplete) router.replace("/Home");
-      else router.replace("/AccountSetup");
+      const needsSetup =
+        !data.accountSetupComplete || !data.vehicleSetupComplete;
+      router.replace(needsSetup ? "/AccountSetup" : "/Home");
     } catch (error) {
       console.error(error);
-      setFirebaseError("Login failed. Please try again.");
+      if (error?.code === "permission-denied") {
+        setFirebaseError(
+          "Access denied for this account. Please contact support.",
+        );
+      } else if (error?.code === "auth/invalid-credential") {
+        setFirebaseError("Invalid email or password.");
+      } else if (error?.code === "auth/too-many-requests") {
+        setFirebaseError("Too many attempts. Please try again later.");
+      } else {
+        setFirebaseError("Login failed. Please try again.");
+      }
     } finally {
       setLoading(false);
     }
@@ -71,7 +93,7 @@ export default function Login() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>LOGIN</Text>
-      
+
       <View>
         <TextInput
           style={[styles.input, errors.email && styles.inputError]}
@@ -111,13 +133,23 @@ export default function Login() {
             />
           </TouchableOpacity>
         </View>
-        {errors.password && <Text style={styles.errorText}>{errors.password}</Text>}
+        {errors.password && (
+          <Text style={styles.errorText}>{errors.password}</Text>
+        )}
       </View>
 
       {firebaseError && <Text style={styles.errorText}>{firebaseError}</Text>}
 
-      <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
-        {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Login</Text>}
+      <TouchableOpacity
+        style={styles.button}
+        onPress={handleLogin}
+        disabled={loading}
+      >
+        {loading ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text style={styles.buttonText}>Login</Text>
+        )}
       </TouchableOpacity>
 
       <TouchableOpacity onPress={() => router.push("/SignUp")}>
@@ -132,26 +164,26 @@ export default function Login() {
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    justifyContent: "center", 
-    padding: 16, 
-    backgroundColor: "#fff" 
+  container: {
+    flex: 1,
+    justifyContent: "center",
+    padding: 16,
+    backgroundColor: "#fff",
   },
-  title: { 
-    fontSize: 32, 
-    marginBottom: 24, 
-    textAlign: "center", 
-    fontFamily: "LEMONMILK-Bold", 
-    color: "#00b2e1" 
+  title: {
+    fontSize: 32,
+    marginBottom: 24,
+    textAlign: "center",
+    fontFamily: "LEMONMILK-Bold",
+    color: "#00b2e1",
   },
-  input: { 
+  input: {
     width: "100%",
     height: 50,
-    padding: 12, 
-    borderWidth: 1, 
-    borderColor: "#ccc", 
-    borderRadius: 6, 
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 6,
     marginBottom: 4,
     fontFamily: "Lexend-Regular",
     fontSize: 16,
@@ -182,31 +214,31 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  inputError: { 
-    borderColor: "#f21b3f" 
+  inputError: {
+    borderColor: "#f21b3f",
   },
-  errorText: { 
-    color: "#f21b3f", 
-    fontSize: 12, 
-    marginBottom: 8 
+  errorText: {
+    color: "#f21b3f",
+    fontSize: 12,
+    marginBottom: 8,
   },
-  button: { 
-    backgroundColor: "#00b2e1", 
-    padding: 12, 
-    borderRadius: 8, 
-    width: "50%", 
-    alignItems: "center", 
-    alignSelf: "center", 
-    marginTop: 12 
+  button: {
+    backgroundColor: "#00b2e1",
+    padding: 12,
+    borderRadius: 8,
+    width: "50%",
+    alignItems: "center",
+    alignSelf: "center",
+    marginTop: 12,
   },
-  buttonText: { 
-    color: "#fff", 
-    fontWeight: "bold", 
-    fontSize: 18 
+  buttonText: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 18,
   },
-  link: { 
-    marginTop: 12, 
-    color: "#00b2e1", 
-    textAlign: "center" 
+  link: {
+    marginTop: 12,
+    color: "#00b2e1",
+    textAlign: "center",
   },
 });
