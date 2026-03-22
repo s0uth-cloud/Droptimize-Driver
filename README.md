@@ -1,4 +1,4 @@
-# Droptimize 🚚
+# Droptimize Mobile App
 
 **A complete courier management system** for admins to track deliveries and drivers, and for drivers to find optimal delivery routes.
 
@@ -195,18 +195,9 @@ To contribute code:
 
 ## License
 
-This project is proprietary software.
-
----
-
-## Support
-
-For issues or questions:
-
-1. Check [INSTALLATION.md](INSTALLATION.md)
-2. Contact your admin or project lead
-3. Check the project's issue tracker
-
----
-
-**Ready to get started?** → [📖 Go to Installation Guide](INSTALLATION.md)
+1. Ensure Android Studio is installed with an Android Virtual Device (AVD) configured
+2. Start your Android emulator
+3. Press `a` in the terminal or run:
+   ```bash
+   npm run android
+   ```
