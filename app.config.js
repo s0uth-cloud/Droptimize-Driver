@@ -22,6 +22,35 @@ export default {
         foregroundImage: "./assets/images/icon.png",
         backgroundColor: "#ffffff",
       },
+      intentFilters: [
+        {
+          action: "VIEW",
+          autoVerify: true,
+          data: [
+            {
+              scheme: "https",
+              host: "droptimize-4b6fc.firebaseapp.com",
+              pathPrefix: "/__/auth/action",
+            },
+            {
+              scheme: "https",
+              host: "droptimize-4b6fc.web.app",
+              pathPrefix: "/__/auth/action",
+            },
+            {
+              scheme: "https",
+              host: "droptimize-4b6fc.web.app",
+              pathPrefix: "/reset-password",
+            },
+            {
+              scheme: "https",
+              host: "droptimize-4b6fc.firebaseapp.com",
+              pathPrefix: "/reset-password",
+            },
+          ],
+          category: ["BROWSABLE", "DEFAULT"],
+        },
+      ],
       edgeToEdgeEnabled: true,
       permissions: [
         "android.permission.INTERNET",
@@ -64,12 +93,12 @@ export default {
       [
         "expo-font",
         {
-          "fonts": [
+          fonts: [
             "./assets/fonts/LEMONMILK-Bold.otf",
             "./assets/fonts/Lexend-Regular.ttf",
             "./assets/fonts/Lexend-Medium.ttf",
-            "./assets/fonts/Lexend-Bold.ttf"
-          ]
+            "./assets/fonts/Lexend-Bold.ttf",
+          ],
         },
       ],
       "expo-web-browser",

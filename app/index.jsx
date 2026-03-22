@@ -7,7 +7,7 @@ import { auth, db } from "../firebaseConfig";
 
 export default function Index() {
   const router = useRouter();
-  const pathname = usePathname();          
+  const pathname = usePathname();
   const [loading, setLoading] = useState(true);
 
   const hasNavigatedRef = useRef(false);
@@ -16,7 +16,7 @@ export default function Index() {
 
   useEffect(() => {
     mountedRef.current = true;
-      
+
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (!mountedRef.current) return;
       if (pathname !== "/") {
@@ -36,40 +36,65 @@ export default function Index() {
         return;
       }
 
-      try {
-      const userRef = doc(db, "users", user.uid);
-      const snap = await getDoc(userRef);
-
-      if (!snap.exists()) {
-          try { await signOut(auth); } catch {}
-          navOnce("/Login");
+      if (!user.emailVerified) {
+        try {
+          await signOut(auth);
+        } catch {}
+        navOnce("/Login");
         return;
       }
 
-        const data = snap.data() || {};
-        if (typeof data.violations === "undefined" && !ensuredViolationsRef.current) {
-          ensuredViolationsRef.current = true;
-          try { await updateDoc(userRef, { violations: [] }); } catch {}
+      try {
+        const userRef = doc(db, "users", user.uid);
+        const snap = await getDoc(userRef);
+
+        if (!snap.exists()) {
+          try {
+            await signOut(auth);
+          } catch {}
+          navOnce("/Login");
+          return;
         }
 
-          const needsSetup = !data.accountSetupComplete || !data.vehicleSetupComplete;
+        const data = snap.data() || {};
+        if (data.role !== "driver") {
+          try {
+            await signOut(auth);
+          } catch {}
+          navOnce("/Login");
+          return;
+        }
+        if (
+          typeof data.violations === "undefined" &&
+          !ensuredViolationsRef.current
+        ) {
+          ensuredViolationsRef.current = true;
+          try {
+            await updateDoc(userRef, { violations: [] });
+          } catch {}
+        }
+
+        const needsSetup =
+          !data.accountSetupComplete || !data.vehicleSetupComplete;
         navOnce(needsSetup ? "/AccountSetup" : "/Home");
       } catch {
         navOnce("/Login");
-        }
+      }
     });
 
     return () => {
       mountedRef.current = false;
       unsub();
     };
-
   }, [router]);
 
   if (loading) {
     return (
       <View style={styles.container}>
-        <Image source={require("../assets/images/logo.png")} style={styles.logo} />
+        <Image
+          source={require("../assets/images/logo.png")}
+          style={styles.logo}
+        />
         <ActivityIndicator size="large" color="#00b2e1" />
       </View>
     );

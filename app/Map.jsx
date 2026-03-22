@@ -1,6 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  where,
+} from "firebase/firestore";
 import haversine from "haversine-distance";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -27,11 +34,21 @@ const CATEGORY_COLORS = {
   Default: "#9e9e9e",
 };
 
+const TRAFFIC_DENSITY_COLORS = [
+  { label: "Light", color: "#34A853" },
+  { label: "Moderate", color: "#F9AB00" },
+  { label: "Heavy", color: "#EA4335" },
+  { label: "Severe", color: "#8B0000" },
+];
+
 // Validate API key on load
 if (!GOOGLE_MAPS_APIKEY) {
-  console.error('[Map] GOOGLE_MAPS_APIKEY is not set! Check .env file.');
+  console.error("[Map] GOOGLE_MAPS_APIKEY is not set! Check .env file.");
 } else {
-  console.log('[Map] API Key loaded:', GOOGLE_MAPS_APIKEY.substring(0, 10) + '...');
+  console.log(
+    "[Map] API Key loaded:",
+    GOOGLE_MAPS_APIKEY.substring(0, 10) + "...",
+  );
 }
 
 function bearingBetween(a, b) {
@@ -43,7 +60,9 @@ function bearingBetween(a, b) {
   const lon2 = toRad(b.longitude);
   const dLon = lon2 - lon1;
   const y = Math.sin(dLon) * Math.cos(lat2);
-  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  const x =
+    Math.cos(lat1) * Math.sin(lat2) -
+    Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
   let deg = toDeg(Math.atan2(y, x));
   if (deg < 0) deg += 360;
   return deg;
@@ -59,7 +78,7 @@ const metersBetween = (a, b) => {
   try {
     return haversine(
       { lat: a.latitude, lon: a.longitude },
-      { lat: b.latitude, lon: b.longitude }
+      { lat: b.latitude, lon: b.longitude },
     );
   } catch (e) {
     console.error("[metersBetween] Error:", e);
@@ -91,6 +110,7 @@ export default function Map({ user: passedUser }) {
   const [slowdownsLoaded, setSlowdownsLoaded] = useState(false);
   const [routeReady, setRouteReady] = useState(true);
   const [headingDeg, setHeadingDeg] = useState(0);
+  const [showLegend, setShowLegend] = useState(false);
 
   const mapRef = useRef(null);
   const prevCoordRef = useRef(null);
@@ -101,7 +121,7 @@ export default function Map({ user: passedUser }) {
   const userZoomRef = useRef(17);
   const userPitchRef = useRef(45);
   const PAUSE_AFTER_GESTURE_MS = 1200;
-  
+
   const getETAColor = () => {
     if (etaMinutes == null) return "#0064b5";
     if (etaMinutes < 15) return "#29bf12";
@@ -127,7 +147,7 @@ export default function Map({ user: passedUser }) {
       const q = query(
         parcelsCol,
         where("driverUid", "==", user.uid),
-        where("status", "==", "Out for Delivery")
+        where("status", "==", "Out for Delivery"),
       );
       const querySnap = await getDocs(q);
       if (querySnap.empty) {
@@ -140,7 +160,7 @@ export default function Map({ user: passedUser }) {
           (p) =>
             p.destination &&
             typeof p.destination.latitude === "number" &&
-            typeof p.destination.longitude === "number"
+            typeof p.destination.longitude === "number",
         );
       console.log("[Map] Loaded", filtered.length, "parcels");
       return filtered;
@@ -191,7 +211,10 @@ export default function Map({ user: passedUser }) {
       }
 
       if (Array.isArray(providerSlowdowns) && providerSlowdowns.length > 0) {
-        console.log("[Map] Using provider slowdowns:", providerSlowdowns.length);
+        console.log(
+          "[Map] Using provider slowdowns:",
+          providerSlowdowns.length,
+        );
         allSlowdowns = providerSlowdowns;
       }
 
@@ -232,7 +255,13 @@ export default function Map({ user: passedUser }) {
   }, [provLocation]);
 
   useEffect(() => {
-    if (!provLocation || !mapRef.current || !followPuck || gestureActiveRef.current) return;
+    if (
+      !provLocation ||
+      !mapRef.current ||
+      !followPuck ||
+      gestureActiveRef.current
+    )
+      return;
 
     const camera = {
       center: {
@@ -260,13 +289,13 @@ export default function Map({ user: passedUser }) {
       /* ignore */
     }
   };
-  
+
   const beginGesture = async () => {
     gestureActiveRef.current = true;
     if (gestureTimerRef.current) clearTimeout(gestureTimerRef.current);
     await saveCameraState();
   };
-  
+
   const endGestureSoon = async () => {
     if (gestureTimerRef.current) clearTimeout(gestureTimerRef.current);
     await saveCameraState();
@@ -301,10 +330,17 @@ export default function Map({ user: passedUser }) {
   }, [slowdowns, provLocation]);
 
   const needsRoute =
-    userData?.status === "Delivering" && parcels.length > 0 && !!GOOGLE_MAPS_APIKEY;
+    userData?.status === "Delivering" &&
+    parcels.length > 0 &&
+    !!GOOGLE_MAPS_APIKEY;
 
   useEffect(() => {
-    if (mapReady && slowdownsLoaded && parcelsLoaded && (!needsRoute || routeReady)) {
+    if (
+      mapReady &&
+      slowdownsLoaded &&
+      parcelsLoaded &&
+      (!needsRoute || routeReady)
+    ) {
       setTimeout(() => {}, 50);
     }
   }, [mapReady, slowdownsLoaded, parcelsLoaded, routeReady, needsRoute]);
@@ -313,10 +349,25 @@ export default function Map({ user: passedUser }) {
     return (
       <View style={styles.loadingContainer}>
         <Ionicons name="warning" size={48} color="#f21b3f" />
-        <Text style={{ marginTop: 15, fontSize: 16, fontWeight: 'bold', color: '#f21b3f' }}>
+        <Text
+          style={{
+            marginTop: 15,
+            fontSize: 16,
+            fontWeight: "bold",
+            color: "#f21b3f",
+          }}
+        >
           Map Configuration Error
         </Text>
-        <Text style={{ marginTop: 10, fontSize: 14, color: '#666', textAlign: 'center', paddingHorizontal: 20 }}>
+        <Text
+          style={{
+            marginTop: 10,
+            fontSize: 14,
+            color: "#666",
+            textAlign: "center",
+            paddingHorizontal: 20,
+          }}
+        >
           Google Maps API key is not configured.{"\n"}
           Please contact support.
         </Text>
@@ -340,11 +391,19 @@ export default function Map({ user: passedUser }) {
     longitude: p.destination.longitude,
   }));
   const waypoints = destinations.slice(0, -1);
-  const finalDestination = destinations.length > 0 ? destinations[destinations.length - 1] : null;
+  const finalDestination =
+    destinations.length > 0 ? destinations[destinations.length - 1] : null;
 
   const effectiveLimit = activeSlowdown?.speedLimit || DEFAULT_SPEED_LIMIT;
-  
-  console.log("[Map] Effective speed limit:", effectiveLimit, "| Active zone:", activeSlowdown?.category || "None", "| Speed:", speed);
+
+  console.log(
+    "[Map] Effective speed limit:",
+    effectiveLimit,
+    "| Active zone:",
+    activeSlowdown?.category || "None",
+    "| Speed:",
+    speed,
+  );
 
   return (
     <View style={styles.container}>
@@ -352,7 +411,8 @@ export default function Map({ user: passedUser }) {
         <View style={styles.slowdownAlert}>
           <Ionicons name="warning" size={22} color="#ffcc00" />
           <Text style={styles.slowdownText}>
-            Slow down! {activeSlowdown.category || "Hazard"} zone - {activeSlowdown.speedLimit || DEFAULT_SPEED_LIMIT} km/h
+            Slow down! {activeSlowdown.category || "Hazard"} zone -{" "}
+            {activeSlowdown.speedLimit || DEFAULT_SPEED_LIMIT} km/h
           </Text>
         </View>
       )}
@@ -379,18 +439,22 @@ export default function Map({ user: passedUser }) {
           longitudeDelta: 0.08,
         }}
         onMapReady={() => {
-          console.log('[Map] Map ready');
+          console.log("[Map] Map ready");
           setMapReady(true);
         }}
         onMapLoaded={() => {
-          console.log('[Map] Map loaded successfully');
+          console.log("[Map] Map loaded successfully");
         }}
         onError={(error) => {
-          console.error('[Map] Map error:', error);
+          console.error("[Map] Map error:", error);
         }}
         onTouchStart={beginGesture}
         onTouchEnd={endGestureSoon}
-        onPanDrag={beginGesture}
+        onPanDrag={() => {
+          setShowLegend(false);
+          beginGesture();
+        }}
+        onPress={() => setShowLegend(false)}
         onRegionChangeComplete={(_, details) => {
           if (details?.isGesture) endGestureSoon();
         }}
@@ -408,7 +472,9 @@ export default function Map({ user: passedUser }) {
             <View
               style={{
                 transform: [
-                  { rotate: `${Number.isFinite(headingDeg) ? headingDeg : 0}deg` },
+                  {
+                    rotate: `${Number.isFinite(headingDeg) ? headingDeg : 0}deg`,
+                  },
                 ],
               }}
             >
@@ -425,24 +491,28 @@ export default function Map({ user: passedUser }) {
               key={`slowdown-${i}`}
               center={{ latitude: s.location.lat, longitude: s.location.lng }}
               radius={s.radius || DEFAULT_RADIUS}
-              strokeColor={CATEGORY_COLORS[s.category] || CATEGORY_COLORS.Default}
+              strokeColor={
+                CATEGORY_COLORS[s.category] || CATEGORY_COLORS.Default
+              }
               fillColor={`${CATEGORY_COLORS[s.category] || CATEGORY_COLORS.Default}55`}
               strokeWidth={2}
             />
-          ) : null
+          ) : null,
         )}
 
         {userData?.status === "Delivering" &&
-          destinations.length > 0 &&
-          !!GOOGLE_MAPS_APIKEY &&
-          finalDestination ? (
+        destinations.length > 0 &&
+        !!GOOGLE_MAPS_APIKEY &&
+        finalDestination ? (
           <>
             {destinations.map((d, i) => (
               <Marker
                 key={`dest-${i}`}
                 coordinate={d}
                 title={`Stop ${i + 1}`}
-                pinColor={i === destinations.length - 1 ? "orange" : "dodgerblue"}
+                pinColor={
+                  i === destinations.length - 1 ? "orange" : "dodgerblue"
+                }
               />
             ))}
             <MapViewDirections
@@ -467,7 +537,12 @@ export default function Map({ user: passedUser }) {
                   ) {
                     routeFitDoneRef.current = true;
                     mapRef.current.fitToCoordinates(result.coordinates, {
-                      edgePadding: { top: 80, right: 50, bottom: 120, left: 50 },
+                      edgePadding: {
+                        top: 80,
+                        right: 50,
+                        bottom: 120,
+                        left: 50,
+                      },
                       animated: true,
                     });
                   }
@@ -517,7 +592,7 @@ export default function Map({ user: passedUser }) {
                     pitch: userPitchRef.current,
                     zoom: userZoomRef.current,
                   },
-                  { duration: 500 }
+                  { duration: 500 },
                 );
               } catch {}
             }
@@ -540,6 +615,63 @@ export default function Map({ user: passedUser }) {
           </Text>
         </TouchableOpacity>
       </View>
+
+      <View style={styles.legendBtnWrap}>
+        <TouchableOpacity
+          style={[styles.followInner, styles.followOff]}
+          onPress={() => setShowLegend((prev) => !prev)}
+          activeOpacity={0.85}
+        >
+          <Ionicons
+            name={
+              showLegend ? "information-circle" : "information-circle-outline"
+            }
+            size={18}
+            color="#0064b5"
+            style={{ marginRight: 6 }}
+          />
+          <Text style={[styles.followText, { color: "#0064b5" }]}>Legend</Text>
+        </TouchableOpacity>
+      </View>
+
+      {showLegend && (
+        <View style={styles.legendPopover}>
+          <View style={styles.legendHeaderRow}>
+            <Text style={styles.legendTitle}>Legend</Text>
+            <TouchableOpacity
+              onPress={() => setShowLegend(false)}
+              hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+            >
+              <Ionicons name="close" size={18} color="#5f6b7a" />
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.legendSectionTitle}>Zone Types</Text>
+          {Object.entries(CATEGORY_COLORS)
+            .filter(([type]) => type !== "Default")
+            .map(([type, color]) => (
+              <View key={type} style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: color }]} />
+                <Text style={styles.legendItemText}>{type}</Text>
+              </View>
+            ))}
+
+          <Text style={[styles.legendSectionTitle, { marginTop: 10 }]}>
+            Traffic Density
+          </Text>
+          {TRAFFIC_DENSITY_COLORS.map((item) => (
+            <View key={item.label} style={styles.legendItem}>
+              <View
+                style={[
+                  styles.legendTrafficBar,
+                  { backgroundColor: item.color },
+                ]}
+              />
+              <Text style={styles.legendItemText}>{item.label}</Text>
+            </View>
+          ))}
+        </View>
+      )}
 
       <View style={styles.infoPanel}>
         <View style={styles.row}>
@@ -658,6 +790,68 @@ const styles = StyleSheet.create({
     bottom: 220,
     right: 12,
     zIndex: 20,
+  },
+  legendBtnWrap: {
+    position: "absolute",
+    bottom: 170,
+    right: 12,
+    zIndex: 20,
+  },
+  legendPopover: {
+    position: "absolute",
+    right: 12,
+    bottom: 270,
+    width: 185,
+    backgroundColor: "rgba(255,255,255,0.96)",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.16,
+    shadowRadius: 4,
+    elevation: 6,
+    zIndex: 22,
+  },
+  legendHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  legendTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#1f2a38",
+  },
+  legendSectionTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#526071",
+    marginBottom: 5,
+  },
+  legendItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.15)",
+  },
+  legendTrafficBar: {
+    width: 14,
+    height: 4,
+    borderRadius: 2,
+    marginRight: 8,
+  },
+  legendItemText: {
+    fontSize: 12,
+    color: "#334155",
   },
   followInner: {
     flexDirection: "row",

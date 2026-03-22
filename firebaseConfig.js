@@ -3,6 +3,7 @@ import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
 import { getApps, initializeApp } from "firebase/app";
 import {
     createUserWithEmailAndPassword,
+    deleteUser,
     sendPasswordResetEmail as firebaseSendPasswordResetEmail,
     getAuth,
     getReactNativePersistence,
@@ -10,18 +11,15 @@ import {
     onAuthStateChanged,
     sendEmailVerification,
     signInWithEmailAndPassword,
+    signOut,
     updateProfile,
 } from "firebase/auth";
 import {
-    collection,
     doc,
     getDoc,
-    getDocs,
     getFirestore,
-    query,
     serverTimestamp,
     setDoc,
-    where,
 } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
@@ -51,39 +49,39 @@ const storage = getStorage(app);
 export { auth, db, ReactNativeAsyncStorage, storage };
 
 /**
- * Registers a new user by creating a Firebase Auth account, initializing their Firestore profile with default driver settings, and sending an email verification. 
- * The function performs email uniqueness validation in Firestore and automatically cleans up the auth account if a duplicate is found. 
+ * Registers a new user by creating a Firebase Auth account, initializing their Firestore profile with default driver settings, and sending an email verification.
+ * The function performs email uniqueness validation in Firestore and automatically cleans up the auth account if a duplicate is found.
  * Upon successful registration, the user data is persisted to AsyncStorage for session management.
  * Returns an object with success status, the created user object, or an error message.
  */
-export const registerUser = async ({ email, password, firstName, lastName }) => {
+export const registerUser = async ({
+  email,
+  password,
+  firstName,
+  lastName,
+}) => {
+  let createdUser = null;
+
   try {
+    const normalizedEmail = email.toLowerCase().trim();
+
     // Create user first with Firebase Auth
-    const { user } = await createUserWithEmailAndPassword(auth, email, password);
+    const { user } = await createUserWithEmailAndPassword(
+      auth,
+      normalizedEmail,
+      password,
+    );
+    createdUser = user;
     const fullName = `${firstName} ${lastName}`;
 
     await updateProfile(user, { displayName: fullName });
-    
-    // Now check if email already exists in Firestore (should not happen, but just in case)
-    const usersRef = collection(db, "users");
-    const emailQuery = query(usersRef, where("email", "==", email.toLowerCase().trim()));
-    const emailSnapshot = await getDocs(emailQuery);
-    
-    if (!emailSnapshot.empty) {
-      // Clean up the auth user if Firestore document already exists
-      await user.delete();
-      return { 
-        success: false, 
-        error: { message: "This email is already registered. Please use a different email or login." } 
-      };
-    }
-    
+
     await setDoc(doc(db, "users", user.uid), {
       uid: user.uid,
       fullName,
       firstName,
       lastName,
-      email,
+      email: normalizedEmail,
       role: "driver",
       photoURL: "",
       location: null,
@@ -103,11 +101,22 @@ export const registerUser = async ({ email, password, firstName, lastName }) => 
 
     await ReactNativeAsyncStorage.setItem(
       "user",
-      JSON.stringify({ uid: user.uid, email, displayName: fullName })
+      JSON.stringify({
+        uid: user.uid,
+        email: normalizedEmail,
+        displayName: fullName,
+      }),
     );
 
     return { success: true, user };
   } catch (error) {
+    if (createdUser) {
+      try {
+        await deleteUser(createdUser);
+      } catch (cleanupError) {
+        console.error("Register cleanup error:", cleanupError.message);
+      }
+    }
     console.error("Register error:", error.message);
     return { success: false, error };
   }
@@ -120,18 +129,68 @@ export const registerUser = async ({ email, password, firstName, lastName }) => 
  */
 export const loginUser = async (email, password) => {
   try {
-    const { user } = await signInWithEmailAndPassword(auth, email, password);
+    const normalizedEmail = email.trim().toLowerCase();
+    const { user } = await signInWithEmailAndPassword(
+      auth,
+      normalizedEmail,
+      password,
+    );
+
+    const userDocSnap = await getDoc(doc(db, "users", user.uid));
+    if (!userDocSnap.exists()) {
+      await signOut(auth);
+      return {
+        success: false,
+        error: {
+          code: "auth/no-user-profile",
+          message: "No user profile found for this account.",
+        },
+      };
+    }
+
+    const userData = userDocSnap.data() || {};
+    if (userData.role !== "driver") {
+      await signOut(auth);
+      return {
+        success: false,
+        error: {
+          code: "auth/forbidden-role",
+          message: "Access denied. Driver account required.",
+        },
+      };
+    }
+
+    if (!user.emailVerified) {
+      await signOut(auth);
+      return {
+        success: false,
+        error: {
+          code: "auth/email-not-verified",
+          message: "Please verify your email before logging in.",
+        },
+      };
+    }
+
     await ReactNativeAsyncStorage.setItem(
       "user",
       JSON.stringify({
         uid: user.uid,
         email: user.email,
         displayName: user.displayName,
-      })
+      }),
     );
     return { success: true, user };
   } catch (error) {
     console.error("Login error:", error.message);
+    if (error?.code === "permission-denied") {
+      return {
+        success: false,
+        error: {
+          code: "auth/access-denied",
+          message: "Access denied for this account. Please contact support.",
+        },
+      };
+    }
     return { success: false, error };
   }
 };
@@ -146,7 +205,9 @@ export const checkAuth = () =>
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       unsubscribe();
       if (!user) return resolve({ authenticated: false });
-      const userDoc = await getDoc(doc(db, "users", user.uid)).catch(() => null);
+      const userDoc = await getDoc(doc(db, "users", user.uid)).catch(
+        () => null,
+      );
       const userData = userDoc?.data() || {};
       resolve({
         authenticated: true,
@@ -184,10 +245,45 @@ export const logoutUser = async () => {
  */
 export const sendPasswordResetEmail = async (email) => {
   try {
-    await firebaseSendPasswordResetEmail(auth, email);
+    const normalizedEmail = email.trim().toLowerCase();
+    const continueUrl =
+      process.env.EXPO_PUBLIC_PASSWORD_RESET_CONTINUE_URL ||
+      "https://droptimize-4b6fc.web.app/reset-password";
+
+    await firebaseSendPasswordResetEmail(auth, normalizedEmail, {
+      url: continueUrl,
+      handleCodeInApp: false,
+    });
+
     return { success: true };
   } catch (error) {
-    console.error("Password reset error:", error.message);
-    return { success: false, error };
+    const code = error?.code || "auth/unknown";
+    console.error("Password reset error:", code, error?.message || error);
+
+    // Keep UX consistent with Firebase anti-enumeration behavior.
+    if (code === "auth/user-not-found") {
+      return { success: true };
+    }
+
+    const messageByCode = {
+      "auth/invalid-email": "Invalid email format.",
+      "auth/missing-email": "Email is required.",
+      "auth/too-many-requests":
+        "Too many attempts. Please wait a few minutes and try again.",
+      "auth/network-request-failed":
+        "Network error. Please check your connection and try again.",
+      "auth/operation-not-allowed":
+        "Password reset is not enabled for this project.",
+    };
+
+    return {
+      success: false,
+      error: {
+        code,
+        message:
+          messageByCode[code] ||
+          `${error?.message || "Failed to send reset email."} (${code})`,
+      },
+    };
   }
 };

@@ -1,9 +1,17 @@
-import { Alert, BackHandler, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+    Alert,
+    BackHandler,
+    Platform,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+} from "react-native";
 import { logoutUser } from "../firebaseConfig";
 
 export default function Navigation({ onNavigate }) {
   const handleNavigate = (path) => {
-    if (onNavigate) onNavigate(path); 
+    if (onNavigate) onNavigate(path);
   };
 
   const handleSignOut = () => {
@@ -15,13 +23,20 @@ export default function Navigation({ onNavigate }) {
         {
           text: "Sign Out",
           style: "destructive",
-          onPress: () => {
-            logoutUser();
+          onPress: async () => {
+            const result = await logoutUser();
+            if (!result.success) {
+              Alert.alert(
+                "Sign Out Failed",
+                result.error?.message || "Please try again.",
+              );
+              return;
+            }
             if (onNavigate) onNavigate("/Login");
           },
         },
       ],
-      { cancelable: true }
+      { cancelable: true },
     );
   };
 
@@ -43,7 +58,7 @@ export default function Navigation({ onNavigate }) {
           },
         },
       ],
-      { cancelable: true }
+      { cancelable: true },
     );
   };
 
