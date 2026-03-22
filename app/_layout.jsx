@@ -7,19 +7,20 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Animated,
-  Dimensions,
-  Image,
-  StyleSheet,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-  View,
+    ActivityIndicator,
+    Animated,
+    Dimensions,
+    Image,
+    StyleSheet,
+    TouchableOpacity,
+    TouchableWithoutFeedback,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Navigation from "../components/Navigation";
 import { auth, db } from "../firebaseConfig";
 import { OverspeedProvider } from "../provider/OverspeedProvider";
+import { SessionTimeoutProvider } from "../provider/SessionTimeoutProvider";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -173,73 +174,81 @@ export default function RootLayout() {
   }
 
   return (
-    <OverspeedProvider>
-      <SafeAreaView
-        style={{ flex: 1 }}
-        edges={["left", "right", "bottom"]}
-        onLayout={onLayoutRootView}
-      >
-        <Stack
-          screenOptions={{
-            headerShown: true,
-            headerTitleAlign: "center",
-            headerStyle: {
-              elevation: 0,
-              shadowOpacity: 0,
-              backgroundColor: "#fff",
-            },
-            headerLeft: () => (isPublicRoute ? null : <BurgerButton />),
-            headerTitle: () => (
-              <Image
-                source={logo}
-                style={{ width: 160, height: 35 }}
-                resizeMode="contain"
-              />
-            ),
-          }}
+    <SessionTimeoutProvider>
+      <OverspeedProvider>
+        <SafeAreaView
+          style={{ flex: 1 }}
+          edges={["left", "right", "bottom"]}
+          onLayout={onLayoutRootView}
         >
-          <Stack.Screen name="index" options={{ headerShown: false }} />
-          <Stack.Screen name="Login" options={{ headerShown: false }} />
-          <Stack.Screen name="SignUp" options={{ headerShown: false }} />
-          <Stack.Screen name="ResetPassword" options={{ headerShown: false }} />
-          <Stack.Screen name="AccountSetup" options={{ headerShown: false }} />
-          <Stack.Screen
-            name="PreferredRoutesSetup"
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen name="Home" options={{ title: "" }} />
-          <Stack.Screen name="Profile" options={{ title: "Profile" }} />
-          <Stack.Screen name="Parcels" options={{ title: "Parcels" }} />
-          <Stack.Screen name="Map" options={{ title: "Map" }} />
-          <Stack.Screen
-            name="DrivingStats"
-            options={{ title: "Driving Stats" }}
-          />
-          <Stack.Screen name="ScanQR" options={{ headerShown: false }} />
-        </Stack>
+          <Stack
+            screenOptions={{
+              headerShown: true,
+              headerTitleAlign: "center",
+              headerStyle: {
+                elevation: 0,
+                shadowOpacity: 0,
+                backgroundColor: "#fff",
+              },
+              headerLeft: () => (isPublicRoute ? null : <BurgerButton />),
+              headerTitle: () => (
+                <Image
+                  source={logo}
+                  style={{ width: 160, height: 35 }}
+                  resizeMode="contain"
+                />
+              ),
+            }}
+          >
+            <Stack.Screen name="index" options={{ headerShown: false }} />
+            <Stack.Screen name="Login" options={{ headerShown: false }} />
+            <Stack.Screen name="SignUp" options={{ headerShown: false }} />
+            <Stack.Screen
+              name="ResetPassword"
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="AccountSetup"
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="PreferredRoutesSetup"
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen name="Home" options={{ title: "" }} />
+            <Stack.Screen name="Profile" options={{ title: "Profile" }} />
+            <Stack.Screen name="Parcels" options={{ title: "Parcels" }} />
+            <Stack.Screen name="Map" options={{ title: "Map" }} />
+            <Stack.Screen
+              name="DrivingStats"
+              options={{ title: "Driving Stats" }}
+            />
+            <Stack.Screen name="ScanQR" options={{ headerShown: false }} />
+          </Stack>
 
-        {menuOpen && (
-          <>
-            <TouchableWithoutFeedback onPress={closeMenu}>
-              <View style={styles.overlay} />
-            </TouchableWithoutFeedback>
-            <Animated.View
-              style={[
-                styles.drawer,
-                { transform: [{ translateX: slideAnim }] },
-              ]}
-            >
-              <Navigation
-                onNavigate={(path) => {
-                  closeMenu();
-                  router.replace(path);
-                }}
-              />
-            </Animated.View>
-          </>
-        )}
-      </SafeAreaView>
-    </OverspeedProvider>
+          {menuOpen && (
+            <>
+              <TouchableWithoutFeedback onPress={closeMenu}>
+                <View style={styles.overlay} />
+              </TouchableWithoutFeedback>
+              <Animated.View
+                style={[
+                  styles.drawer,
+                  { transform: [{ translateX: slideAnim }] },
+                ]}
+              >
+                <Navigation
+                  onNavigate={(path) => {
+                    closeMenu();
+                    router.replace(path);
+                  }}
+                />
+              </Animated.View>
+            </>
+          )}
+        </SafeAreaView>
+      </OverspeedProvider>
+    </SessionTimeoutProvider>
   );
 }
 

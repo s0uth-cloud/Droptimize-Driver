@@ -4,6 +4,7 @@ import { getApps, initializeApp } from "firebase/app";
 import {
     createUserWithEmailAndPassword,
     deleteUser,
+    sendPasswordResetEmail as firebaseSendPasswordResetEmail,
     getAuth,
     getReactNativePersistence,
     initializeAuth,
@@ -245,35 +246,44 @@ export const logoutUser = async () => {
 export const sendPasswordResetEmail = async (email) => {
   try {
     const normalizedEmail = email.trim().toLowerCase();
-    const functionUrl = process.env.EXPO_PUBLIC_PASSWORD_RESET_FUNCTION_URL;
-    const webResetBaseUrl =
+    const continueUrl =
       process.env.EXPO_PUBLIC_PASSWORD_RESET_CONTINUE_URL ||
       "https://droptimize-4b6fc.web.app/reset-password";
 
-    if (!functionUrl) {
-      throw new Error(
-        "EXPO_PUBLIC_PASSWORD_RESET_FUNCTION_URL is not configured.",
-      );
-    }
-
-    const response = await fetch(functionUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: normalizedEmail,
-        webResetBaseUrl,
-        source: "mobile",
-      }),
+    await firebaseSendPasswordResetEmail(auth, normalizedEmail, {
+      url: continueUrl,
+      handleCodeInApp: false,
     });
-
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || !payload.success) {
-      throw new Error(payload.error || "Failed to send reset email.");
-    }
 
     return { success: true };
   } catch (error) {
-    console.error("Password reset error:", error.message);
-    return { success: false, error };
+    const code = error?.code || "auth/unknown";
+    console.error("Password reset error:", code, error?.message || error);
+
+    // Keep UX consistent with Firebase anti-enumeration behavior.
+    if (code === "auth/user-not-found") {
+      return { success: true };
+    }
+
+    const messageByCode = {
+      "auth/invalid-email": "Invalid email format.",
+      "auth/missing-email": "Email is required.",
+      "auth/too-many-requests":
+        "Too many attempts. Please wait a few minutes and try again.",
+      "auth/network-request-failed":
+        "Network error. Please check your connection and try again.",
+      "auth/operation-not-allowed":
+        "Password reset is not enabled for this project.",
+    };
+
+    return {
+      success: false,
+      error: {
+        code,
+        message:
+          messageByCode[code] ||
+          `${error?.message || "Failed to send reset email."} (${code})`,
+      },
+    };
   }
 };

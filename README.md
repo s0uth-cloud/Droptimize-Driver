@@ -1,62 +1,212 @@
-# Droptimize Mobile App 🚚
+# Droptimize 🚚
 
-Droptimize is a courier management system designed to make it easier for courier company admins, like J&T Express, to track and manage their employees.
+**A complete courier management system** for admins to track deliveries and drivers, and for drivers to find optimal delivery routes.
 
-This repository is dedicated to the development of the **Droptimize mobile application for drivers**. The mobile application helps drivers find the most efficient route to deliver parcels.
+## What is Droptimize?
 
-## Prerequisites
+Droptimize consists of two parts:
 
-- [Node.js](https://nodejs.org/en/download/current) (LTS version recommended)
-- For Android Emulator: [Android Studio](https://developer.android.com/studio) with Android SDK
-- For Physical Device: [Expo Go](https://expo.dev/go) app (supports Expo SDK 54)
+- **📱 Mobile App** - For drivers to view assigned parcels and find the best routes
+- **🖥️ Web Dashboard** - For admins to manage drivers, track deliveries, and monitor performance
 
-## Setup Instructions
+Both the web and mobile apps are fully integrated and work together seamlessly.
 
-### Step 1: Install Dependencies
+---
 
-Open Terminal in the root directory (`Droptimize/`) and run:
+## 🚀 Getting Started
 
-```bash
-npm install
+**→ [👉 GO TO INSTALLATION GUIDE](INSTALLATION.md) ←**
+
+The installation guide covers:
+
+- ✅ Quick setup for casual users
+- ✅ Full development setup for programmers
+- ✅ Step-by-step instructions for mobile and web
+- ✅ Troubleshooting tips
+
+---
+
+## Project Structure
+
+```
+Droptimize/
+├── app/                    # Mobile app screens (React Native)
+├── components/             # Mobile UI components
+├── services/              # Firebase & API integrations
+├── firebaseConfig.js      # Firebase configuration
+├── app.config.js          # Expo configuration
+└── INSTALLATION.md        # Installation guide (START HERE!)
+
+Droptimize-Web/
+├── src/
+│   ├── components/        # Web UI components (React)
+│   ├── pages/            # Web app pages
+│   ├── services.js       # API and Firebase services
+│   └── firebaseConfig.js # Firebase configuration
+├── functions/            # Cloud Functions (if needed)
+└── public/              # Static assets
 ```
 
-### Step 2: Start the Development Server
+---
+
+## Technology Stack
+
+| Platform    | Technology                   | Version  |
+| ----------- | ---------------------------- | -------- |
+| **Mobile**  | React Native (Expo)          | SDK 54   |
+| **Web**     | React + Vite                 | React 19 |
+| **Backend** | Firebase                     | Latest   |
+| **Maps**    | Google Maps API              | Latest   |
+| **State**   | Firebase Auth + AsyncStorage | -        |
+
+---
+
+## Features
+
+### For Drivers 📦
+
+- View assigned parcels for today
+- Optimize delivery routes with Google Maps
+- Real-time location tracking
+- Mark parcels as delivered with photos
+- Receive notifications about new deliveries
+
+### For Admins 🎯
+
+- Dashboard with KPIs (delivery volume, driver status)
+- Manage all drivers and parcels
+- Monitor driver performance and speeds
+- Track overspeeding incidents
+- Real-time map view of all drivers
+- Assign parcels to drivers
+
+---
+
+## Development
+
+### Quick Commands
 
 ```bash
-npx expo start
+# Start development server
+npm start
+
+# Run on Android
+npm run android
+
+# Run on Web
+npm run web
+
+# Check code quality
+npm lint
+
+# Build for production (web)
+npm run build
 ```
 
-### Step 3: Run the Application
+### Architecture
 
-Choose one of the following options:
+- **Mobile App**: Expo Router for navigation, Firebase Auth for login, Async Storage for local caching
+- **Web Dashboard**: React Router for navigation, Firebase Realtime Database for data sync
+- **Real-time Updates**: Firebase listeners for live driver location and delivery status
+- **Maps Integration**: Google Maps SDK on mobile, @react-google-maps on web
 
-#### Option A: Using Expo Go (Physical Device)
+---
 
-1. Install [Expo Go](https://expo.dev/go) on your Android device
-2. Scan the QR code displayed in the terminal with the Expo Go app
-3. The app will load on your device
+## Database Schema
 
-**Note:** If you encounter issues, ensure you're using Expo Go version compatible with Expo SDK 54.
+The app uses Firebase Realtime Database with the following main collections:
 
-#### Option B: Using Android Emulator
+- **users/** - User accounts with authentication
+- **drivers/** - Driver profiles and current status
+- **parcels/** - Parcel delivery information
+- **incidents/** - Safety incidents (overspeeding, collisions)
 
-1. Ensure Android Studio is installed with an Android Virtual Device (AVD) configured
-2. Start your Android emulator
-3. Press `a` in the terminal or run:
-   ```bash
-   npm run android
-   ```
+---
 
-## Learn More
+## Firebase Configuration
 
-To learn more about developing your project with Expo, look at the following resources:
+The app requires a Firebase project configured with:
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+- ✅ Email/Password Authentication
+- ✅ Realtime Database
+- ✅ Storage (for profile pictures)
+- ✅ Cloud Functions (optional, for advanced features)
 
-## Join the community
+Environment variables are stored in `.env` files (not committed to git).
 
-Join our community of developers creating universal apps.
+---
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## API Integrations
+
+- **Google Maps API** - Route optimization and navigation
+- **Google Places API** - Address autocomplete
+- **Firebase Authentication** - User login/signup
+- **Firebase Realtime Database** - Data synchronization
+
+---
+
+## Performance Notes
+
+- Mobile app uses location filtering to reduce battery drain
+- Web dashboard renders charts using MUI X Charts
+- Both platforms cache data locally to minimize API calls
+
+---
+
+## Known Limitations
+
+- iOS build requires Apple Developer account (not in this repo yet)
+- Password reset emails use Firebase's default reset page
+- Map clustering on web requires marker clusterer package
+
+---
+
+## Security Considerations
+
+- All API keys are environment variables (not hardcoded)
+- Firebase security rules enforce role-based access
+- Sensitive user data is encrypted in transit
+- Mobile app uses secure token storage
+
+---
+
+## Troubleshooting
+
+**For setup issues**, see [INSTALLATION.md](INSTALLATION.md#troubleshooting)
+
+**For development questions**, check:
+
+- [Expo Documentation](https://docs.expo.dev/)
+- [Firebase Documentation](https://firebase.google.com/docs)
+- [React Documentation](https://react.dev)
+
+---
+
+## Contributing
+
+To contribute code:
+
+1. Create a feature branch: `git checkout -b feature/your-feature`
+2. Make changes and test locally
+3. Commit with clear messages: `git commit -m "Add feature X"`
+4. Push and open a Pull Request
+
+---
+
+## License
+
+This project is proprietary software.
+
+---
+
+## Support
+
+For issues or questions:
+
+1. Check [INSTALLATION.md](INSTALLATION.md)
+2. Contact your admin or project lead
+3. Check the project's issue tracker
+
+---
+
+**Ready to get started?** → [📖 Go to Installation Guide](INSTALLATION.md)

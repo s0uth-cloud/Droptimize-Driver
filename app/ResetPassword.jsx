@@ -3,13 +3,13 @@ import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { confirmPasswordReset, verifyPasswordResetCode } from "firebase/auth";
 import { useEffect, useMemo, useState } from "react";
 import {
-    ActivityIndicator,
-    KeyboardAvoidingView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { auth, sendPasswordResetEmail } from "../firebaseConfig";
 
@@ -90,7 +90,9 @@ export default function ResetPassword() {
         setSentToEmail(trimmedEmail);
         setEmail("");
       } else {
-        setEmailError(result.error?.message || "Failed to send reset email");
+        const detail = result.error?.message || "Failed to send reset email";
+        const code = result.error?.code ? ` [${result.error.code}]` : "";
+        setEmailError(`${detail}${code}`);
       }
     } catch (_err) {
       setEmailError("An error occurred. Please try again.");
