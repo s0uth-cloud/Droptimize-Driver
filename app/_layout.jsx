@@ -22,6 +22,19 @@ import { auth, db } from "../firebaseConfig";
 import { OverspeedProvider } from "../provider/OverspeedProvider";
 import { SessionTimeoutProvider } from "../provider/SessionTimeoutProvider";
 
+const getUserProfileDoc = async (user) => {
+  try {
+    return await getDoc(doc(db, "users", user.uid));
+  } catch (error) {
+    if (error?.code !== "permission-denied") {
+      throw error;
+    }
+
+    await user.getIdToken(true);
+    return getDoc(doc(db, "users", user.uid));
+  }
+};
+
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const logo = require("../assets/images/logo.png");
@@ -84,20 +97,14 @@ export default function RootLayout() {
         return;
       }
 
-      if (!user.emailVerified) {
-        try {
-          await signOut(auth);
-        } catch {}
-        setIsAuthenticated(false);
-        setAuthReady(true);
-        return;
-      }
-
       try {
-        const userDoc = await getDoc(doc(db, "users", user.uid));
+        const userDoc = await getUserProfileDoc(user);
         const data = userDoc.data() || {};
 
         if (!userDoc.exists() || data.role !== "driver") {
+          await signOut(auth);
+          setIsAuthenticated(false);
+        } else if (!user.emailVerified) {
           await signOut(auth);
           setIsAuthenticated(false);
         } else {

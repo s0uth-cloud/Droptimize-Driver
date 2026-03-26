@@ -13,6 +13,12 @@ import {
 import RNPickerSelect from "react-native-picker-select";
 import ProfilePhotoSelector from "../components/ProfilePhotoSelector";
 import { auth, db } from "../firebaseConfig";
+import {
+    sanitizeNameInput,
+    sanitizePhoneInput,
+    validateName,
+    validatePhone,
+} from "../services/validationService";
 
 export default function Profile() {
   const [userData, setUserData] = useState({
@@ -26,6 +32,7 @@ export default function Profile() {
 
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
+  const [errors, setErrors] = useState({});
 
   const [regions, setRegions] = useState([]);
   const [provinces, setProvinces] = useState([]);
@@ -33,7 +40,7 @@ export default function Profile() {
   const [barangays, setBarangays] = useState([]);
 
   const [selection, setSelection] = useState({});
-  const [editingIndex, setEditingIndex] = useState(null); 
+  const [editingIndex, setEditingIndex] = useState(null);
 
   useEffect(() => {
     fetchRegions();
@@ -67,11 +74,23 @@ export default function Profile() {
   const handleSaveProfile = async () => {
     const user = auth.currentUser;
     if (!user) return;
+
+    const nextErrors = {};
+    const fullNameError = validateName(userData.fullName, "Full name");
+    if (fullNameError) nextErrors.fullName = fullNameError;
+
+    const phoneError = validatePhone(userData.phoneNumber);
+    if (phoneError) nextErrors.phoneNumber = phoneError;
+
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
+
     try {
+      const digitsOnlyPhone = sanitizePhoneInput(userData.phoneNumber);
       const userRef = doc(db, "users", user.uid);
       await updateDoc(userRef, {
-        fullName: userData.fullName,
-        phoneNumber: userData.phoneNumber,
+        fullName: userData.fullName.trim(),
+        phoneNumber: digitsOnlyPhone,
         address: userData.address,
         photoURL: userData.photoURL,
         preferredRoutes: userData.preferredRoutes,
@@ -88,9 +107,7 @@ export default function Profile() {
   const fetchRegions = async () => {
     try {
       const res = await axios.get("https://psgc.gitlab.io/api/regions/");
-      setRegions(
-        res.data.map((r) => ({ label: r.name, value: r.code }))
-      );
+      setRegions(res.data.map((r) => ({ label: r.name, value: r.code })));
     } catch (err) {
       console.error("Error loading regions:", err);
     }
@@ -98,21 +115,21 @@ export default function Profile() {
 
   const fetchProvincesByRegion = async (regionCode) => {
     const res = await axios.get(
-      `https://psgc.gitlab.io/api/regions/${regionCode}/provinces/`
+      `https://psgc.gitlab.io/api/regions/${regionCode}/provinces/`,
     );
     setProvinces(res.data.map((p) => ({ label: p.name, value: p.code })));
   };
 
   const fetchMunicipalities = async (provinceCode) => {
     const res = await axios.get(
-      `https://psgc.gitlab.io/api/provinces/${provinceCode}/cities-municipalities/`
+      `https://psgc.gitlab.io/api/provinces/${provinceCode}/cities-municipalities/`,
     );
     setMunicipalities(res.data.map((m) => ({ label: m.name, value: m.code })));
   };
 
   const fetchBarangays = async (municipalityCode) => {
     const res = await axios.get(
-      `https://psgc.gitlab.io/api/cities-municipalities/${municipalityCode}/barangays/`
+      `https://psgc.gitlab.io/api/cities-municipalities/${municipalityCode}/barangays/`,
     );
     setBarangays(res.data.map((b) => ({ label: b.name, value: b.code })));
   };
@@ -211,35 +228,43 @@ export default function Profile() {
           />
           <Text style={styles.sectionTitle}>Personal Information</Text>
 
-          <TextInput style={styles.input} value={userData.id} editable={false} />
+          <TextInput
+            style={styles.input}
+            value={userData.id}
+            editable={false}
+          />
 
           <TextInput
             style={styles.input}
             value={userData.fullName}
             onChangeText={(t) =>
-              setUserData((p) => ({ ...p, fullName: t }))
+              setUserData((p) => ({ ...p, fullName: sanitizeNameInput(t) }))
             }
             editable={editing}
             placeholder="Full Name"
           />
+          {errors.fullName ? (
+            <Text style={styles.errorText}>{errors.fullName}</Text>
+          ) : null}
 
           <TextInput
             style={styles.input}
             value={userData.phoneNumber}
             onChangeText={(t) =>
-              setUserData((p) => ({ ...p, phoneNumber: t }))
+              setUserData((p) => ({ ...p, phoneNumber: sanitizePhoneInput(t) }))
             }
             editable={editing}
             placeholder="Phone Number"
             keyboardType="phone-pad"
           />
+          {errors.phoneNumber ? (
+            <Text style={styles.errorText}>{errors.phoneNumber}</Text>
+          ) : null}
 
           <TextInput
             style={styles.input}
             value={userData.address}
-            onChangeText={(t) =>
-              setUserData((p) => ({ ...p, address: t }))
-            }
+            onChangeText={(t) => setUserData((p) => ({ ...p, address: t }))}
             editable={editing}
             placeholder="Address"
           />
@@ -251,7 +276,11 @@ export default function Profile() {
               </Text>
 
               <RNPickerSelect
-                placeholder={{ label: "Select Region", value: null, color: "#999" }}
+                placeholder={{
+                  label: "Select Region",
+                  value: null,
+                  color: "#999",
+                }}
                 items={regions}
                 onValueChange={handleRegion}
                 value={selection.regionCode}
@@ -260,7 +289,11 @@ export default function Profile() {
 
               {provinces.length > 0 && (
                 <RNPickerSelect
-                  placeholder={{ label: "Select Province", value: null, color: "#999" }}
+                  placeholder={{
+                    label: "Select Province",
+                    value: null,
+                    color: "#999",
+                  }}
                   items={provinces}
                   onValueChange={handleProvince}
                   value={selection.provinceCode}
@@ -270,22 +303,30 @@ export default function Profile() {
 
               {municipalities.length > 0 && (
                 <RNPickerSelect
-                  placeholder={{ label: "Select Municipality", value: null, color: "#999" }}
+                  placeholder={{
+                    label: "Select Municipality",
+                    value: null,
+                    color: "#999",
+                  }}
                   items={municipalities}
                   onValueChange={handleMunicipality}
                   value={selection.municipalityCode}
                   style={pickerSelectStyles}
-              />
+                />
               )}
 
               {barangays.length > 0 && (
                 <RNPickerSelect
-                  placeholder={{ label: "Select Barangay", value: null, color: "#999" }}
+                  placeholder={{
+                    label: "Select Barangay",
+                    value: null,
+                    color: "#999",
+                  }}
                   items={barangays}
                   onValueChange={handleBarangay}
                   value={selection.barangayCode}
                   style={pickerSelectStyles}
-              />
+                />
               )}
 
               <TouchableOpacity style={styles.addBtn} onPress={saveRoute}>
@@ -404,6 +445,12 @@ const styles = StyleSheet.create({
   },
   removeText: {
     color: "red",
+  },
+  errorText: {
+    color: "#f21b3f",
+    marginTop: -8,
+    marginBottom: 8,
+    fontSize: 12,
   },
   button: {
     backgroundColor: "#00b2e1",

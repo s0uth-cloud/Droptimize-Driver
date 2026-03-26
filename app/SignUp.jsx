@@ -2,10 +2,26 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { ActivityIndicator, Alert, KeyboardAvoidingView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import {
+    ActivityIndicator,
+    Alert,
+    KeyboardAvoidingView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from "react-native";
 
 // Internal dependencies
 import { registerUser } from "../firebaseConfig";
+import {
+    sanitizeEmailInput,
+    sanitizeNameInput,
+    validateEmail,
+    validateName,
+    validateStrongPassword,
+} from "../services/validationService";
 
 /**
  * Driver registration screen with comprehensive form validation.
@@ -27,7 +43,17 @@ export default function SignUp() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  const handleChange = (field, value) => setFormData((prev) => ({ ...prev, [field]: value }));
+  const handleChange = (field, value) => {
+    let nextValue = value;
+    if (field === "firstName" || field === "lastName") {
+      nextValue = sanitizeNameInput(value);
+    }
+    if (field === "email") {
+      nextValue = sanitizeEmailInput(value);
+    }
+    setFormData((prev) => ({ ...prev, [field]: nextValue }));
+    setErrors((prev) => ({ ...prev, [field]: "" }));
+  };
 
   /**
    * Handles signup submission with comprehensive validation (required fields, email format, password matching).
@@ -37,12 +63,20 @@ export default function SignUp() {
   const handleSignUp = async () => {
     const { email, password, confirmPassword, firstName, lastName } = formData;
     const newErrors = {};
-    if (!firstName?.trim()) newErrors.firstName = "First name is required";
-    if (!lastName?.trim()) newErrors.lastName = "Last name is required";
-    if (!email.trim()) newErrors.email = "Email is required";
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) newErrors.email = "Invalid email format";
-    if (!password) newErrors.password = "Password is required";
-    if (!confirmPassword) newErrors.confirmPassword = "Please confirm your password";
+    const firstNameError = validateName(firstName, "First name");
+    if (firstNameError) newErrors.firstName = firstNameError;
+
+    const lastNameError = validateName(lastName, "Last name");
+    if (lastNameError) newErrors.lastName = lastNameError;
+
+    const emailError = validateEmail(email);
+    if (emailError) newErrors.email = emailError;
+
+    const passwordError = validateStrongPassword(password);
+    if (passwordError) newErrors.password = passwordError;
+
+    if (!confirmPassword)
+      newErrors.confirmPassword = "Please confirm your password";
     if (password && confirmPassword && password !== confirmPassword)
       newErrors.confirmPassword = "Passwords do not match";
 
@@ -51,8 +85,23 @@ export default function SignUp() {
     setLoading(true);
     try {
       const result = await registerUser(formData);
-      if (result.success) router.replace("/AccountSetup");
-      else Alert.alert("Error", result.error.message || result.error);
+      if (result.success) {
+        Alert.alert(
+          "Registration Successful!",
+          "A verification email has been sent to " +
+            formData.email +
+            ".\n\nPlease click the link in the email to verify your account before continuing to setup.",
+          [
+            {
+              text: "OK",
+              onPress: () => router.replace("/Login"),
+            },
+          ],
+          { cancelable: false },
+        );
+      } else {
+        Alert.alert("Error", result.error.message || result.error);
+      }
     } catch (error) {
       console.error(error);
       Alert.alert("Error", error.message);
@@ -65,7 +114,7 @@ export default function SignUp() {
     <KeyboardAvoidingView style={styles.container} behavior="padding">
       <View style={styles.container}>
         <Text style={styles.title}>Sign Up</Text>
-        
+
         <View>
           <TextInput
             style={[styles.input, errors.firstName && styles.errorInput]}
@@ -77,7 +126,9 @@ export default function SignUp() {
             autoCorrect={false}
             autoCapitalize="words"
           />
-          {errors.firstName && <Text style={styles.errorText}>{errors.firstName}</Text>}
+          {errors.firstName && (
+            <Text style={styles.errorText}>{errors.firstName}</Text>
+          )}
         </View>
 
         <View>
@@ -91,7 +142,9 @@ export default function SignUp() {
             autoCorrect={false}
             autoCapitalize="words"
           />
-          {errors.lastName && <Text style={styles.errorText}>{errors.lastName}</Text>}
+          {errors.lastName && (
+            <Text style={styles.errorText}>{errors.lastName}</Text>
+          )}
         </View>
 
         <View>
@@ -112,7 +165,10 @@ export default function SignUp() {
         <View>
           <View style={styles.passwordContainer}>
             <TextInput
-              style={[styles.passwordInput, errors.password && styles.errorInput]}
+              style={[
+                styles.passwordInput,
+                errors.password && styles.errorInput,
+              ]}
               placeholder="Password"
               placeholderTextColor="#999"
               value={formData.password}
@@ -133,13 +189,18 @@ export default function SignUp() {
               />
             </TouchableOpacity>
           </View>
-          {errors.password && <Text style={styles.errorText}>{errors.password}</Text>}
+          {errors.password && (
+            <Text style={styles.errorText}>{errors.password}</Text>
+          )}
         </View>
 
         <View>
           <View style={styles.passwordContainer}>
             <TextInput
-              style={[styles.passwordInput, errors.confirmPassword && styles.errorInput]}
+              style={[
+                styles.passwordInput,
+                errors.confirmPassword && styles.errorInput,
+              ]}
               placeholder="Confirm Password"
               placeholderTextColor="#999"
               value={formData.confirmPassword}
@@ -160,11 +221,21 @@ export default function SignUp() {
               />
             </TouchableOpacity>
           </View>
-          {errors.confirmPassword && <Text style={styles.errorText}>{errors.confirmPassword}</Text>}
+          {errors.confirmPassword && (
+            <Text style={styles.errorText}>{errors.confirmPassword}</Text>
+          )}
         </View>
 
-        <TouchableOpacity style={styles.button} onPress={handleSignUp} disabled={loading}>
-          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Sign Up</Text>}
+        <TouchableOpacity
+          style={styles.button}
+          onPress={handleSignUp}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.buttonText}>Sign Up</Text>
+          )}
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => router.push("/Login")}>
@@ -176,26 +247,26 @@ export default function SignUp() {
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    justifyContent: "center", 
-    padding: 16, 
-    backgroundColor: "#fff" 
+  container: {
+    flex: 1,
+    justifyContent: "center",
+    padding: 16,
+    backgroundColor: "#fff",
   },
-  title: { 
-    fontSize: 32, 
-    marginBottom: 24, 
-    textAlign: "center", 
-    fontFamily: "LEMONMILK-Bold", 
-    color: "#00b2e1" 
+  title: {
+    fontSize: 32,
+    marginBottom: 24,
+    textAlign: "center",
+    fontFamily: "LEMONMILK-Bold",
+    color: "#00b2e1",
   },
-  input: { 
+  input: {
     width: "100%",
     height: 50,
-    padding: 12, 
-    borderWidth: 1, 
-    borderColor: "#ccc", 
-    borderRadius: 6, 
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 6,
     marginBottom: 4,
     fontFamily: "Lexend-Regular",
     fontSize: 16,
@@ -226,31 +297,31 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  errorInput: { 
-    borderColor: "#f21b3f" 
+  errorInput: {
+    borderColor: "#f21b3f",
   },
-  errorText: { 
-    color: "#f21b3f", 
-    fontSize: 12, 
-    marginBottom: 8 
+  errorText: {
+    color: "#f21b3f",
+    fontSize: 12,
+    marginBottom: 8,
   },
-  button: { 
-    backgroundColor: "#00b2e1", 
-    padding: 14, 
-    borderRadius: 6, 
-    alignItems: "center", 
-    marginTop: 16, 
-    width: "50%", 
-    alignSelf: "center" 
+  button: {
+    backgroundColor: "#00b2e1",
+    padding: 14,
+    borderRadius: 6,
+    alignItems: "center",
+    marginTop: 16,
+    width: "50%",
+    alignSelf: "center",
   },
-  buttonText: { 
-    color: "#fff", 
-    fontWeight: "bold", 
-    fontSize: 18 
+  buttonText: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 18,
   },
-  link: { 
-    marginTop: 12, 
-    color: "#00b2e1", 
-    textAlign: "center"
+  link: {
+    marginTop: 12,
+    color: "#00b2e1",
+    textAlign: "center",
   },
 });

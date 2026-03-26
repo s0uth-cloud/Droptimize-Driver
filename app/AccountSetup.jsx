@@ -13,6 +13,13 @@ import {
     View,
 } from "react-native";
 import DropDownPicker from "react-native-dropdown-picker";
+import {
+    sanitizePhoneInput,
+    validateJoinCode,
+    validatePhone,
+    validatePlateNumber,
+    validateVehicleModel
+} from "../services/validationService";
 
 // Firebase imports
 import {
@@ -76,7 +83,7 @@ export default function AccountSetup() {
   useFocusEffect(
     useCallback(() => {
       loadFormData();
-    }, [])
+    }, []),
   );
 
   useEffect(() => {
@@ -93,7 +100,11 @@ export default function AccountSetup() {
     try {
       await AsyncStorage.setItem(
         FORM_STORAGE_KEY,
-        JSON.stringify({ formData: data, vehicleType: vType, customWeightLimit })
+        JSON.stringify({
+          formData: data,
+          vehicleType: vType,
+          customWeightLimit,
+        }),
       );
     } catch (error) {
       console.error("Error saving form data:", error);
@@ -108,7 +119,11 @@ export default function AccountSetup() {
     try {
       const saved = await AsyncStorage.getItem(FORM_STORAGE_KEY);
       if (saved) {
-        const { formData: savedForm, vehicleType: savedType, customWeightLimit: savedWeight } = JSON.parse(saved);
+        const {
+          formData: savedForm,
+          vehicleType: savedType,
+          customWeightLimit: savedWeight,
+        } = JSON.parse(saved);
         setFormData(savedForm);
         setVehicleType(savedType);
         setCustomWeightLimit(savedWeight || "");
@@ -134,8 +149,27 @@ export default function AccountSetup() {
    * Used for handling text input changes for address, phone number, join code, plate number, and vehicle model fields.
    */
   const handleChange = (field, value) => {
+    let sanitized = value;
+    if (field === "phoneNumber") {
+      sanitized = sanitizePhoneInput(value);
+    } else if (field === "plateNumber") {
+      sanitized = String(value || "")
+        .toUpperCase()
+        .replace(/[^A-Z0-9-]/g, "")
+        .trimStart();
+    } else if (field === "joinCode") {
+      sanitized = String(value || "")
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, "")
+        .trimStart();
+    } else if (field === "model") {
+      sanitized = String(value || "")
+        .replace(/[^A-Za-z0-9\s-]/g, "")
+        .trimStart();
+    }
+
     setFormData((prev) => {
-      const updated = { ...prev, [field]: value };
+      const updated = { ...prev, [field]: sanitized };
       saveFormData(updated, vehicleType);
       return updated;
     });
@@ -157,11 +191,12 @@ export default function AccountSetup() {
   const handleWeightLimitChange = (text) => {
     // Remove any non-numeric characters except decimal point
     const cleanedText = text.replace(/[^0-9.]/g, "");
-    
+
     // Prevent multiple decimal points
     const parts = cleanedText.split(".");
-    const sanitized = parts.length > 2 ? parts[0] + "." + parts.slice(1).join("") : cleanedText;
-    
+    const sanitized =
+      parts.length > 2 ? parts[0] + "." + parts.slice(1).join("") : cleanedText;
+
     // Clear error when user is typing
     setErrors((prev) => ({ ...prev, customWeightLimit: "" }));
     setCustomWeightLimit(sanitized);
@@ -177,58 +212,41 @@ export default function AccountSetup() {
   };
 
   /**
-   * Validates all form fields (address length, phone number format, join code, plate number, vehicle type, model, and custom weight limit within valid ranges), checks for duplicate plate numbers across all users, verifies join code exists in branches collection, and saves the complete account setup data to Firestore.
+   * Validates all form fields using strict validators, checks for duplicate plate numbers across all users, verifies join code exists in branches collection, and saves the complete account setup data to Firestore.
    * Uses merge: true for existing users to preserve other fields, or creates a new user document with default driver role and offline status if the user document doesn't exist.
    * After successful validation and saving, clears the AsyncStorage form data, navigates to preferred routes setup if branch wasn't joined, and displays appropriate success messages based on branch join status.
    */
   const handleSubmit = async () => {
     const newErrors = {};
-    
-    // Address validation
-    if (!formData.address.trim()) {
-      newErrors.address = "Address is required";
-    } else if (formData.address.trim().length < 10) {
-      newErrors.address = "Address must be at least 10 characters";
-    }
-    
+
     // Phone number validation
-    if (!formData.phoneNumber.trim()) {
-      newErrors.phoneNumber = "Phone number is required";
-    } else if (!/^[0-9+\-\s()]+$/.test(formData.phoneNumber)) {
-      newErrors.phoneNumber = "Invalid phone number format";
-    } else if (formData.phoneNumber.replace(/[^0-9]/g, "").length < 10) {
-      newErrors.phoneNumber = "Phone number must have at least 10 digits";
-    }
-    
-    // Join code validation (optional)
-    if (formData.joinCode.trim() && formData.joinCode.trim().length < 4) {
-      newErrors.joinCode = "Join code must be at least 4 characters";
-    }
-    
+    const phoneError = validatePhone(formData.phoneNumber);
+    if (phoneError) newErrors.phoneNumber = phoneError;
+
     // Plate number validation
-    if (!formData.plateNumber.trim()) {
-      newErrors.plateNumber = "Plate number is required";
-    } else if (formData.plateNumber.trim().length < 2) {
-      newErrors.plateNumber = "Plate number must be at least 2 characters";
+    const plateError = validatePlateNumber(formData.plateNumber);
+    if (plateError) newErrors.plateNumber = plateError;
+
+    // Join code validation (optional, but if provided must be valid)
+    if (formData.joinCode.trim()) {
+      const joinCodeError = validateJoinCode(formData.joinCode);
+      if (joinCodeError) newErrors.joinCode = joinCodeError;
     }
-    
+
     // Vehicle type validation
     if (!vehicleType) {
       newErrors.vehicleType = "Vehicle type is required";
     }
-    
+
     // Vehicle model validation
-    if (!formData.model.trim()) {
-      newErrors.model = "Vehicle model is required";
-    } else if (formData.model.trim().length < 2) {
-      newErrors.model = "Vehicle model must be at least 2 characters";
-    }
-    
+    const modelError = validateVehicleModel(formData.model);
+    if (modelError) newErrors.model = modelError;
+
     // Custom weight limit validation
     if (customWeightLimit && vehicleType) {
       const weight = parseFloat(customWeightLimit);
       const range = vehicleWeightRanges[vehicleType];
-      
+
       if (isNaN(weight)) {
         newErrors.customWeightLimit = "Weight must be a valid number";
       } else if (weight < range.min) {
@@ -253,13 +271,21 @@ export default function AccountSetup() {
 
       // Check for duplicate plate number
       const usersRef = collection(db, "users");
-      const plateQuery = query(usersRef, where("plateNumber", "==", formData.plateNumber.toUpperCase().trim()));
+      const plateQuery = query(
+        usersRef,
+        where("plateNumber", "==", formData.plateNumber.toUpperCase().trim()),
+      );
       const plateSnapshot = await getDocs(plateQuery);
-      
+
       // Check if any existing user (other than current user) has this plate number
-      const duplicatePlate = plateSnapshot.docs.find(doc => doc.id !== currentUser.uid);
+      const duplicatePlate = plateSnapshot.docs.find(
+        (doc) => doc.id !== currentUser.uid,
+      );
       if (duplicatePlate) {
-        setErrors({ plateNumber: "This plate number is already registered. Please use a different plate number." });
+        setErrors({
+          plateNumber:
+            "This plate number is already registered. Please use a different plate number.",
+        });
         setLoading(false);
         return;
       }
@@ -278,12 +304,13 @@ export default function AccountSetup() {
 
       const userRef = doc(db, "users", currentUser.uid);
       const userSnap = await getDoc(userRef);
-      
+
       const capitalizedVehicleType = capitalizeFirstLetter(vehicleType);
-      const weightLimit = customWeightLimit && parseFloat(customWeightLimit) > 0 
-        ? parseFloat(customWeightLimit) 
-        : vehicleWeightLimits[vehicleType];
-      
+      const weightLimit =
+        customWeightLimit && parseFloat(customWeightLimit) > 0
+          ? parseFloat(customWeightLimit)
+          : vehicleWeightLimits[vehicleType];
+
       if (userSnap.exists()) {
         await setDoc(
           userRef,
@@ -299,7 +326,7 @@ export default function AccountSetup() {
             vehicleSetupComplete: true,
             updatedAt: serverTimestamp(),
           },
-          { merge: true }
+          { merge: true },
         );
       } else {
         await setDoc(userRef, {
@@ -348,8 +375,16 @@ export default function AccountSetup() {
 
         {[
           { key: "address", placeholder: "Address", keyboard: "default" },
-          { key: "phoneNumber", placeholder: "Phone Number", keyboard: "phone-pad" },
-          { key: "plateNumber", placeholder: "Plate Number", keyboard: "default" },
+          {
+            key: "phoneNumber",
+            placeholder: "Phone Number",
+            keyboard: "phone-pad",
+          },
+          {
+            key: "plateNumber",
+            placeholder: "Plate Number",
+            keyboard: "default",
+          },
           { key: "model", placeholder: "Vehicle Model", keyboard: "default" },
         ].map(({ key, placeholder, keyboard }) => (
           <View key={key}>
@@ -380,10 +415,16 @@ export default function AccountSetup() {
           textStyle={{ fontSize: 16, color: "#000" }}
           placeholderStyle={{ color: "#999" }}
         />
-        {errors.vehicleType && <Text style={styles.errorText}>{errors.vehicleType}</Text>}
+        {errors.vehicleType && (
+          <Text style={styles.errorText}>{errors.vehicleType}</Text>
+        )}
 
         <TextInput
-          style={[styles.input, { marginTop: 8 }, errors.customWeightLimit && styles.inputError]}
+          style={[
+            styles.input,
+            { marginTop: 8 },
+            errors.customWeightLimit && styles.inputError,
+          ]}
           placeholder="Custom Weight Limit (kg) - Optional"
           placeholderTextColor="#999"
           value={customWeightLimit}
@@ -393,18 +434,23 @@ export default function AccountSetup() {
           autoCorrect={false}
           editable={!!vehicleType}
         />
-        {errors.customWeightLimit && <Text style={styles.errorText}>{errors.customWeightLimit}</Text>}
+        {errors.customWeightLimit && (
+          <Text style={styles.errorText}>{errors.customWeightLimit}</Text>
+        )}
         {vehicleType && (
           <Text style={styles.helperText}>
             Default: {vehicleWeightLimits[vehicleType]} kg
-            {customWeightLimit && parseFloat(customWeightLimit) > 0 
-              ? ` → Custom: ${customWeightLimit} kg` 
+            {customWeightLimit && parseFloat(customWeightLimit) > 0
+              ? ` → Custom: ${customWeightLimit} kg`
               : ""}
-            {"\n"}Valid range: {vehicleWeightRanges[vehicleType].min} - {vehicleWeightRanges[vehicleType].max} kg
+            {"\n"}Valid range: {vehicleWeightRanges[vehicleType].min} -{" "}
+            {vehicleWeightRanges[vehicleType].max} kg
           </Text>
         )}
 
-        <View style={[styles.inputWrapper, errors.joinCode && styles.inputError]}>
+        <View
+          style={[styles.inputWrapper, errors.joinCode && styles.inputError]}
+        >
           <TextInput
             style={styles.joinCodeInput}
             placeholder="Company Join Code (Optional)"
@@ -415,21 +461,35 @@ export default function AccountSetup() {
             autoCorrect={false}
             autoCapitalize="characters"
           />
-          <TouchableOpacity 
+          <TouchableOpacity
             onPress={() => router.push("/ScanQR")}
             style={styles.qrButton}
           >
             <Ionicons name="qr-code-outline" size={28} color="#00b2e1" />
           </TouchableOpacity>
         </View>
-        {errors.joinCode && <Text style={styles.errorText}>{errors.joinCode}</Text>}
-        {!formData.joinCode.trim() && !errors.joinCode && (
-          <Text style={styles.helperText}>You can join a branch later from your profile</Text>
+        {errors.joinCode && (
+          <Text style={styles.errorText}>{errors.joinCode}</Text>
         )}
-        {errors.general && <Text style={styles.errorText}>{errors.general}</Text>}
+        {!formData.joinCode.trim() && !errors.joinCode && (
+          <Text style={styles.helperText}>
+            You can join a branch later from your profile
+          </Text>
+        )}
+        {errors.general && (
+          <Text style={styles.errorText}>{errors.general}</Text>
+        )}
 
-        <TouchableOpacity style={styles.button} onPress={handleSubmit} disabled={loading}>
-          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Next</Text>}
+        <TouchableOpacity
+          style={styles.button}
+          onPress={handleSubmit}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.buttonText}>Next</Text>
+          )}
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -441,14 +501,14 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     padding: 20,
-    backgroundColor: "#fff"
+    backgroundColor: "#fff",
   },
   title: {
     fontSize: 28,
     textAlign: "center",
     fontFamily: "LEMONMILK-Bold",
     color: "#00b2e1",
-    marginBottom: 24
+    marginBottom: 24,
   },
   input: {
     borderWidth: 1,
@@ -501,19 +561,19 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   inputError: {
-    borderColor: "#f21b3f"
+    borderColor: "#f21b3f",
   },
   errorText: {
     fontSize: 12,
     color: "#f21b3f",
-    marginBottom: 10
+    marginBottom: 10,
   },
   helperText: {
     fontSize: 12,
     color: "#666",
     marginBottom: 10,
     marginTop: -4,
-    fontFamily: "Lexend-Regular"
+    fontFamily: "Lexend-Regular",
   },
   button: {
     backgroundColor: "#00b2e1",
@@ -522,11 +582,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 12,
     width: "50%",
-    alignSelf: "center"
+    alignSelf: "center",
   },
   buttonText: {
     color: "#fff",
     fontWeight: "bold",
-    fontSize: 18
+    fontSize: 18,
   },
 });

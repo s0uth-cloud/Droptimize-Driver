@@ -1,7 +1,6 @@
 // External dependencies
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { doc, getDoc } from "firebase/firestore";
 import { useState } from "react";
 import {
     ActivityIndicator,
@@ -13,7 +12,7 @@ import {
 } from "react-native";
 
 // Internal dependencies
-import { db, loginUser } from "../firebaseConfig";
+import { loginUser } from "../firebaseConfig";
 
 /**
  * Driver login screen with email and password authentication.
@@ -61,13 +60,11 @@ export default function Login() {
         return;
       }
 
-      const user = result.user;
-      const userDocSnap = await getDoc(doc(db, "users", user.uid));
-      if (!userDocSnap.exists()) {
+      const data = result.profile || {};
+      if (!result.profile) {
         setFirebaseError("Account profile not found. Please contact support.");
         return;
       }
-      const data = userDocSnap.data() || {};
 
       const needsSetup =
         !data.accountSetupComplete || !data.vehicleSetupComplete;

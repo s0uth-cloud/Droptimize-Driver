@@ -5,6 +5,19 @@ import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Image, StyleSheet, View } from "react-native";
 import { auth, db } from "../firebaseConfig";
 
+const getUserProfileDoc = async (user) => {
+  try {
+    return await getDoc(doc(db, "users", user.uid));
+  } catch (error) {
+    if (error?.code !== "permission-denied") {
+      throw error;
+    }
+
+    await user.getIdToken(true);
+    return getDoc(doc(db, "users", user.uid));
+  }
+};
+
 export default function Index() {
   const router = useRouter();
   const pathname = usePathname();
@@ -36,17 +49,9 @@ export default function Index() {
         return;
       }
 
-      if (!user.emailVerified) {
-        try {
-          await signOut(auth);
-        } catch {}
-        navOnce("/Login");
-        return;
-      }
-
       try {
         const userRef = doc(db, "users", user.uid);
-        const snap = await getDoc(userRef);
+        const snap = await getUserProfileDoc(user);
 
         if (!snap.exists()) {
           try {
@@ -64,6 +69,15 @@ export default function Index() {
           navOnce("/Login");
           return;
         }
+
+        if (!user.emailVerified) {
+          try {
+            await signOut(auth);
+          } catch {}
+          navOnce("/Login");
+          return;
+        }
+
         if (
           typeof data.violations === "undefined" &&
           !ensuredViolationsRef.current
