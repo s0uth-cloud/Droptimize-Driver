@@ -4,33 +4,34 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    KeyboardAvoidingView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import DropDownPicker from "react-native-dropdown-picker";
 import {
-    sanitizePhoneInput,
-    validateJoinCode,
-    validatePhone,
-    validatePlateNumber,
-    validateVehicleModel
+  sanitizePhoneInput,
+  validateJoinCode,
+  validatePhone,
+  validatePlateNumber,
+  validateVehicleModel,
 } from "../services/validationService";
 
 // Firebase imports
+import { onAuthStateChanged } from "firebase/auth";
 import {
-    collection,
-    doc,
-    getDoc,
-    getDocs,
-    query,
-    serverTimestamp,
-    setDoc,
-    where,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  serverTimestamp,
+  setDoc,
+  where,
 } from "firebase/firestore";
 
 // Internal dependencies
@@ -52,6 +53,7 @@ export default function AccountSetup() {
 
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
+  const [authInitialized, setAuthInitialized] = useState(false);
 
   const [open, setOpen] = useState(false);
   const [vehicleType, setVehicleType] = useState(null);
@@ -79,6 +81,7 @@ export default function AccountSetup() {
     van: { min: 500, max: 1200 },
     truck: { min: 1000, max: 3000 },
   };
+  const ABSOLUTE_MAX_WEIGHT = 3000;
 
   useFocusEffect(
     useCallback(() => {
@@ -95,6 +98,18 @@ export default function AccountSetup() {
       });
     }
   }, [scannedJoinCode, vehicleType]);
+
+  useEffect(() => {
+    // Set up auth state listener to ensure auth is initialized before form submission
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setAuthInitialized(true);
+      if (!user) {
+        router.replace("/Login");
+      }
+    });
+
+    return () => unsubscribe();
+  }, [router]);
 
   const saveFormData = async (data, vType) => {
     try {
@@ -180,6 +195,18 @@ export default function AccountSetup() {
    * Triggers the display of custom weight limit input based on vehicle type selection.
    */
   const handleVehicleTypeChange = (value) => {
+    if (customWeightLimit) {
+      const parsed = parseFloat(customWeightLimit);
+      const nextMax = vehicleWeightRanges[value]?.max ?? ABSOLUTE_MAX_WEIGHT;
+      if (!isNaN(parsed) && parsed > nextMax) {
+        setCustomWeightLimit(String(nextMax));
+        setErrors((prev) => ({
+          ...prev,
+          customWeightLimit: `Weight cannot exceed ${nextMax} kg for ${value}`,
+        }));
+      }
+    }
+
     setVehicleType(value);
     saveFormData(formData, value);
   };
@@ -194,8 +221,30 @@ export default function AccountSetup() {
 
     // Prevent multiple decimal points
     const parts = cleanedText.split(".");
-    const sanitized =
+    let sanitized =
       parts.length > 2 ? parts[0] + "." + parts.slice(1).join("") : cleanedText;
+
+    // Normalize leading decimal and keep at most 2 decimal places
+    if (sanitized.startsWith(".")) {
+      sanitized = `0${sanitized}`;
+    }
+    const [intPart = "", decimalPart = ""] = sanitized.split(".");
+    sanitized = decimalPart ? `${intPart}.${decimalPart.slice(0, 2)}` : intPart;
+
+    const maxAllowed =
+      vehicleType && vehicleWeightRanges[vehicleType]
+        ? vehicleWeightRanges[vehicleType].max
+        : ABSOLUTE_MAX_WEIGHT;
+
+    const parsedWeight = parseFloat(sanitized);
+    if (!isNaN(parsedWeight) && parsedWeight > maxAllowed) {
+      setCustomWeightLimit(String(maxAllowed));
+      setErrors((prev) => ({
+        ...prev,
+        customWeightLimit: `Weight cannot exceed ${maxAllowed} kg${vehicleType ? ` for ${vehicleType}` : ""}`,
+      }));
+      return;
+    }
 
     // Clear error when user is typing
     setErrors((prev) => ({ ...prev, customWeightLimit: "" }));
@@ -217,6 +266,12 @@ export default function AccountSetup() {
    * After successful validation and saving, clears the AsyncStorage form data, navigates to preferred routes setup if branch wasn't joined, and displays appropriate success messages based on branch join status.
    */
   const handleSubmit = async () => {
+    // Ensure auth is initialized before attempting to submit
+    if (!authInitialized) {
+      setErrors({ general: "Authentication is being initialized. Please try again in a moment." });
+      return;
+    }
+
     const newErrors = {};
 
     // Phone number validation
@@ -430,6 +485,7 @@ export default function AccountSetup() {
           value={customWeightLimit}
           onChangeText={handleWeightLimitChange}
           keyboardType="numeric"
+          maxLength={7}
           underlineColorAndroid="transparent"
           autoCorrect={false}
           editable={!!vehicleType}

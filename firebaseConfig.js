@@ -422,7 +422,30 @@ export const loginUser = async (email, password) => {
         },
       };
     }
-    return { success: false, error };
+
+    // Harden error messages to prevent information disclosure
+    const SAFE_ERROR_MESSAGES = {
+      "auth/user-not-found": "Invalid email or password",
+      "auth/wrong-password": "Invalid email or password",
+      "auth/invalid-email": "Please enter a valid email address",
+      "auth/too-many-requests":
+        "Too many failed login attempts. Please try again later.",
+      "auth/user-disabled":
+        "This account has been disabled. Please contact support.",
+    };
+
+    const safeMessage =
+      SAFE_ERROR_MESSAGES[error?.code] ||
+      "An error occurred during login. Please try again.";
+    console.error("[Login] Error code:", error?.code);
+
+    return {
+      success: false,
+      error: {
+        code: error?.code || "auth/unknown-error",
+        message: safeMessage,
+      },
+    };
   }
 };
 
@@ -464,8 +487,14 @@ export const logoutUser = async () => {
     await ReactNativeAsyncStorage.removeItem("user");
     return { success: true };
   } catch (error) {
-    console.error("Logout error:", error.message);
-    return { success: false, error };
+    console.error("[Logout] Error code:", error?.code);
+    return {
+      success: false,
+      error: {
+        code: error?.code || "auth/logout-failed",
+        message: "Failed to sign out. Please try again.",
+      },
+    };
   }
 };
 
