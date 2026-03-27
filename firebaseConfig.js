@@ -2,24 +2,25 @@
 import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
 import { getApps, initializeApp } from "firebase/app";
 import {
-    createUserWithEmailAndPassword,
-    deleteUser,
-    sendPasswordResetEmail as firebaseSendPasswordResetEmail,
-    getAuth,
-    getReactNativePersistence,
-    initializeAuth,
-    onAuthStateChanged,
-    sendEmailVerification,
-    signInWithEmailAndPassword,
-    signOut,
-    updateProfile,
+  createUserWithEmailAndPassword,
+  deleteUser,
+  sendPasswordResetEmail as firebaseSendPasswordResetEmail,
+  getAuth,
+  getReactNativePersistence,
+  initializeAuth,
+  onAuthStateChanged,
+  sendEmailVerification,
+  signInWithEmailAndPassword,
+  signOut,
+  updateProfile,
 } from "firebase/auth";
 import {
-    doc,
-    getDoc,
-    getFirestore,
-    serverTimestamp,
-    setDoc,
+  deleteDoc,
+  doc,
+  getDoc,
+  getFirestore,
+  serverTimestamp,
+  setDoc,
 } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
@@ -34,6 +35,8 @@ const firebaseConfig = {
 
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 
+console.log("[FirebaseConfig] projectId:", firebaseConfig.projectId);
+
 let auth;
 try {
   auth = initializeAuth(app, {
@@ -45,8 +48,32 @@ try {
 
 const db = getFirestore(app);
 const storage = getStorage(app);
+const PROFILE_FUNCTION_URL =
+  process.env.EXPO_PUBLIC_PROFILE_FUNCTION_URL ||
+  "https://asia-southeast1-droptimize-4b6fc.cloudfunctions.net/upsertUserProfile";
 
 export { auth, db, ReactNativeAsyncStorage, storage };
+
+const createDriverProfilePayload = ({ uid, email, firstName, lastName }) => ({
+  uid,
+  firstName,
+  lastName,
+  fullName: `${firstName} ${lastName}`.trim(),
+  email,
+  role: "driver",
+  photoURL: "",
+  location: null,
+  speed: 0,
+  speedLimit: 0,
+  status: "Offline",
+  parcelsLeft: 0,
+  parcelsDelivered: 0,
+  totalTrips: 0,
+  accountSetupComplete: false,
+  vehicleSetupComplete: false,
+  createdAt: serverTimestamp(),
+  updatedAt: serverTimestamp(),
+});
 
 /**
  * Registers a new user by creating a Firebase Auth account, initializing their Firestore profile with default driver settings, and sending an email verification.
@@ -61,6 +88,7 @@ export const registerUser = async ({
   lastName,
 }) => {
   let createdUser = null;
+  let firestoreDocCreated = false;
 
   try {
     const normalizedEmail = email.toLowerCase().trim();
@@ -73,31 +101,92 @@ export const registerUser = async ({
     );
     createdUser = user;
     const fullName = `${firstName} ${lastName}`;
+    const profilePayload = createDriverProfilePayload({
+      uid: user.uid,
+      email: normalizedEmail,
+      firstName,
+      lastName,
+    });
 
     await updateProfile(user, { displayName: fullName });
 
-    await setDoc(doc(db, "users", user.uid), {
-      uid: user.uid,
-      fullName,
-      firstName,
-      lastName,
-      email: normalizedEmail,
-      role: "driver",
-      photoURL: "",
-      location: null,
-      speed: 0,
-      speedLimit: 0,
-      status: "Offline",
-      parcelsLeft: 0,
-      parcelsDelivered: 0,
-      totalTrips: 0,
-      accountSetupComplete: false,
-      vehicleSetupComplete: false,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
+    let profileCreated = false;
+    try {
+      const idToken = await user.getIdToken();
+      const profileRes = await fetch(PROFILE_FUNCTION_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          email: normalizedEmail,
+          firstName,
+          lastName,
+          role: "driver",
+        }),
+      });
 
-    await sendEmailVerification(user);
+      if (!profileRes.ok) {
+        const payload = await profileRes.json().catch(() => ({}));
+        const message =
+          payload?.message ||
+          "Failed to create user profile. Please try again.";
+        const profileError = new Error(message);
+        profileError.code = payload?.error || "auth/profile-write-denied";
+        throw profileError;
+      }
+
+      profileCreated = true;
+      firestoreDocCreated = true;
+    } catch (profileError) {
+      console.warn(
+        "[FirebaseConfig] Profile function failed, trying direct Firestore write:",
+        profileError?.code || profileError?.message,
+      );
+
+      try {
+        await setDoc(doc(db, "users", user.uid), profilePayload, {
+          merge: true,
+        });
+        profileCreated = true;
+        firestoreDocCreated = true;
+      } catch (fallbackError) {
+        const writeError = new Error(
+          "Unable to create account profile. Please contact support.",
+        );
+        writeError.code = fallbackError?.code || "auth/profile-write-denied";
+        throw writeError;
+      }
+    }
+
+    if (!profileCreated) {
+      const error = new Error("Unable to create account profile.");
+      error.code = "auth/profile-write-denied";
+      throw error;
+    }
+
+    let emailVerificationSent = false;
+    try {
+      await sendEmailVerification(user);
+      emailVerificationSent = true;
+    } catch (emailError) {
+      console.error(
+        "[Register] Failed to send email verification:",
+        emailError?.code || emailError?.message,
+      );
+      const err = new Error(
+        "Account created but failed to send verification email. Please check your email or contact support.",
+      );
+      err.code = "auth/email-verification-failed";
+      throw err;
+    }
+
+    if (!emailVerificationSent) {
+      const error = new Error("Failed to send email verification.");
+      error.code = "auth/email-verification-failed";
+      throw error;
+    }
 
     await ReactNativeAsyncStorage.setItem(
       "user",
@@ -110,13 +199,135 @@ export const registerUser = async ({
 
     return { success: true, user };
   } catch (error) {
-    if (createdUser) {
+    // Clean up Firestore document if it was created
+    if (firestoreDocCreated && createdUser) {
+      console.warn(
+        "[Register] Cleaning up Firestore document for UID:",
+        createdUser.uid,
+      );
       try {
-        await deleteUser(createdUser);
-      } catch (cleanupError) {
-        console.error("Register cleanup error:", cleanupError.message);
+        await deleteDoc(doc(db, "users", createdUser.uid));
+        console.log(
+          "[Register] Firestore document successfully deleted:",
+          createdUser.uid,
+        );
+      } catch (firestoreDeleteError) {
+        console.error(
+          "[Register] Failed to delete Firestore document:",
+          createdUser.uid,
+          firestoreDeleteError?.code || firestoreDeleteError?.message,
+        );
+
+        try {
+          console.warn("[Register] Retrying Firestore document deletion...");
+          await deleteDoc(doc(db, "users", createdUser.uid));
+          console.log(
+            "[Register] Firestore document deleted on retry:",
+            createdUser.uid,
+          );
+        } catch (retryError) {
+          console.error(
+            "[Register] CRITICAL: Failed to delete Firestore document after profile creation failed. Manual cleanup required for UID:",
+            createdUser.uid,
+            retryError?.code || retryError?.message,
+          );
+        }
       }
     }
+
+    // Clean up Auth account if it was created
+    if (createdUser) {
+      console.warn(
+        "[Register] Profile creation failed, cleaning up Auth account:",
+        createdUser.uid,
+      );
+      try {
+        await deleteUser(createdUser);
+        console.log(
+          "[Register] Auth account successfully deleted:",
+          createdUser.uid,
+        );
+      } catch (cleanupError) {
+        console.error(
+          "[Register] Failed to delete Auth account on first attempt:",
+          createdUser.uid,
+          cleanupError?.code || cleanupError?.message,
+        );
+
+        try {
+          console.warn("[Register] Retrying Auth account deletion...");
+          await deleteUser(createdUser);
+          console.log(
+            "[Register] Auth account deleted on retry:",
+            createdUser.uid,
+          );
+        } catch (retryError) {
+          console.error(
+            "[Register] CRITICAL: Failed to delete orphaned Auth account after profile creation failed. Manual cleanup required for UID:",
+            createdUser.uid,
+            retryError?.code || retryError?.message,
+          );
+        }
+      }
+    }
+
+    if (
+      error?.code === "permission-denied" ||
+      error?.code === "profile-write-failed" ||
+      error?.code === "auth/profile-write-denied"
+    ) {
+      return {
+        success: false,
+        error: {
+          code: "auth/profile-write-denied",
+          message:
+            "Account creation was blocked by database permissions. Please contact support.",
+        },
+      };
+    }
+
+    if (error?.code === "auth/email-verification-failed") {
+      return {
+        success: false,
+        error: {
+          code: "auth/email-verification-failed",
+          message:
+            "Account created but verification email could not be sent. Please try again or contact support.",
+        },
+      };
+    }
+
+    if (error?.code === "auth/email-already-in-use") {
+      return {
+        success: false,
+        error: {
+          code: "auth/email-already-in-use",
+          message:
+            "This email is already registered. Please login or use a different email.",
+        },
+      };
+    }
+
+    if (error?.code === "auth/weak-password") {
+      return {
+        success: false,
+        error: {
+          code: "auth/weak-password",
+          message: "Password is too weak. Please use a stronger password.",
+        },
+      };
+    }
+
+    if (error?.code === "auth/network-request-failed") {
+      return {
+        success: false,
+        error: {
+          code: "auth/network-request-failed",
+          message: "Network error while contacting Firebase. Please try again.",
+        },
+      };
+    }
+
     console.error("Register error:", error.message);
     return { success: false, error };
   }
@@ -136,7 +347,18 @@ export const loginUser = async (email, password) => {
       password,
     );
 
-    const userDocSnap = await getDoc(doc(db, "users", user.uid));
+    let userDocSnap;
+    try {
+      userDocSnap = await getDoc(doc(db, "users", user.uid));
+    } catch (error) {
+      if (error?.code !== "permission-denied") {
+        throw error;
+      }
+
+      await user.getIdToken(true);
+      userDocSnap = await getDoc(doc(db, "users", user.uid));
+    }
+
     if (!userDocSnap.exists()) {
       await signOut(auth);
       return {
@@ -166,7 +388,8 @@ export const loginUser = async (email, password) => {
         success: false,
         error: {
           code: "auth/email-not-verified",
-          message: "Please verify your email before logging in.",
+          message:
+            "Please verify your email before logging in. Check your inbox for the verification link.",
         },
       };
     }
@@ -179,10 +402,18 @@ export const loginUser = async (email, password) => {
         displayName: user.displayName,
       }),
     );
-    return { success: true, user };
+    return { success: true, user, profile: userData };
   } catch (error) {
     console.error("Login error:", error.message);
     if (error?.code === "permission-denied") {
+      try {
+        await signOut(auth);
+      } catch (signOutError) {
+        console.error(
+          "Login permission-denied signOut error:",
+          signOutError?.message || signOutError,
+        );
+      }
       return {
         success: false,
         error: {
@@ -191,7 +422,30 @@ export const loginUser = async (email, password) => {
         },
       };
     }
-    return { success: false, error };
+
+    // Harden error messages to prevent information disclosure
+    const SAFE_ERROR_MESSAGES = {
+      "auth/user-not-found": "Invalid email or password",
+      "auth/wrong-password": "Invalid email or password",
+      "auth/invalid-email": "Please enter a valid email address",
+      "auth/too-many-requests":
+        "Too many failed login attempts. Please try again later.",
+      "auth/user-disabled":
+        "This account has been disabled. Please contact support.",
+    };
+
+    const safeMessage =
+      SAFE_ERROR_MESSAGES[error?.code] ||
+      "An error occurred during login. Please try again.";
+    console.error("[Login] Error code:", error?.code);
+
+    return {
+      success: false,
+      error: {
+        code: error?.code || "auth/unknown-error",
+        message: safeMessage,
+      },
+    };
   }
 };
 
@@ -233,8 +487,14 @@ export const logoutUser = async () => {
     await ReactNativeAsyncStorage.removeItem("user");
     return { success: true };
   } catch (error) {
-    console.error("Logout error:", error.message);
-    return { success: false, error };
+    console.error("[Logout] Error code:", error?.code);
+    return {
+      success: false,
+      error: {
+        code: error?.code || "auth/logout-failed",
+        message: "Failed to sign out. Please try again.",
+      },
+    };
   }
 };
 
